@@ -1,56 +1,76 @@
-# E-Trike Finder + LGU Records — setup (about 20 minutes, free tier)
+# E-Trike Finder + LGU Records — setup with Google Sheets (free, about 15 minutes)
 
-Files: `index.html` (drivers + passengers), `admin.html` (LGU staff), `database-rules.json`.
-Both pages open in DEMO mode with sample data until you do the steps below.
+Everything is stored in **your Google Sheet** and run by a free **Google Apps Script**. No Firebase.
 
-## 1. Create the database
-1. https://console.firebase.google.com → Add project (e.g. `etrike-isabel`). Google Analytics: off.
-2. Build → **Realtime Database** → Create database → location **Singapore** → start in **locked mode**.
-3. Copy the database URL shown at the top of the Data tab
-   (looks like `https://etrike-isabel-default-rtdb.asia-southeast1.firebasedatabase.app`).
+Files:
+- `index.html` — drivers and passengers
+- `admin.html` — LGU staff records page
+- `Code.gs` — the script that goes inside the Google Sheet
+- The Google Sheet **E-Trike Records (Isabel)** (in the same Drive folder)
 
-## 2. Create the LGU admin login (do this while the database is still empty)
-1. Build → **Authentication** → Get started → Sign-in method → enable **Email/Password**.
-2. Users tab → **Add user** → the LGU staff email + a strong password. Copy that user's **User UID**.
-3. Back in Realtime Database → Data tab → ⋮ menu → **Import JSON**, using a file containing:
-   `{ "admins": { "PASTE-THE-UID-HERE": true } }`
-   Repeat (add more UIDs) for each staff member who may see records. Only UIDs listed here can read records.
+Both pages open in DEMO mode (sample data) until you finish the steps below.
 
-## 3. Security rules
-Realtime Database → **Rules** tab → paste the contents of `database-rules.json` → Publish.
-What they do: anyone can see live e-trike positions; only listed admins can read trips, time in/out records,
-GPS trails and the audit log; closed trips and time-in/out records cannot be edited afterwards.
+## 1. Put the script in the Sheet
+1. Open the Google Sheet **E-Trike Records (Isabel)** → menu **Extensions → Apps Script**.
+2. Delete the sample code. Open `Code.gs`, copy everything, paste it in. Click **Save** (💾).
+3. At the top of the script, change `ADMIN_EMAIL` and `ADMIN_PASSWORD` to the LGU staff login you want
+   (password at least 8 characters).
+4. In the toolbar, pick the function **setup** in the drop-down → **Run**. Accept the permission prompts
+   (Google may warn "unverified app" — click Advanced → Go to project; it is your own script).
+   This creates the tabs Shifts, Trips, Tracks, Audit in the sheet.
+5. Pick **setAdmin** → **Run**. Then **erase the password** from the top of the script and Save again.
+   (Only a scrambled version is kept.)
+6. Pick **installDailyCleanup** → **Run**. This deletes old records automatically every night
+   (GPS trail after 30 days, trips and time in/out after 180 days, staff log after 365 days — change these in `CFG`
+   at the top of the script, with the Data Protection Officer's advice).
 
-## 4. Fill in the settings
-- `index.html` → top of the script: `FIREBASE_URL` (and `ORG` if you want a different name in the privacy notice).
-- `admin.html` → `FIREBASE_URL` (same) and `FIREBASE_API_KEY`
-  (Project settings ⚙ → General → **Web API Key**; if none is shown, click "Add app" → Web).
+To add another staff member later: change `ADMIN_EMAIL`/`ADMIN_PASSWORD`, run **setAdmin** again, erase the password.
+To remove one: set `ADMIN_EMAIL` to their email and run **removeAdmin**.
 
-## 5. Put it online
-Upload `index.html` and `admin.html` to a GitHub repo → Settings → Pages. It must be https:// so phones allow GPS.
-Admin page: `https://YOUR-SITE/admin.html`. Passenger page: `https://YOUR-SITE/index.html`.
+## 2. Publish it as a web app
+1. In the Apps Script page: **Deploy → New deployment** → gear icon → **Web app**.
+2. **Execute as:** Me. **Who has access:** Anyone. Click **Deploy**.
+3. Copy the **Web app URL** (ends with `/exec`).
 
-## 6. Print QR stickers
-Open admin.html → sign in → **QR stickers** → enter each e-trike's body number → Make stickers → Print.
-Each sticker opens the passenger page for that e-trike. Put one inside every e-trike where passengers can scan it.
+Important: whenever you change `Code.gs` later, use **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**
+or the change will not go live.
 
-## What gets recorded
-- **Driver:** time in / time out (name, body number, phone) and a GPS point about every 30 seconds while online.
-- **Passenger (after scanning the QR):** name, mobile number, e-trike, driver, start/end time and place.
-- **Staff:** every login, search, export and sticker print is written to an audit log.
+## 3. Connect the pages
+Open `index.html` and `admin.html`, find `API_URL: "",` near the top of the script and paste the URL between the quotes
+(same URL in both files). In `index.html` you can also change `ORG` (name shown in the passenger privacy notice).
 
-## Things the LGU still has to decide (not built in)
-- **Deleting old records.** Nothing is deleted automatically. Set a retention period (with the Data Protection
-  Officer) and delete older `tracks`, `trips`, `shifts` in the Firebase console, or ask for an automatic clean-up to be added.
-- **Privacy notice wording.** The consent text in the passenger page is a draft. Have the DPO / legal office review it
-  and the Data Privacy Act registration needs.
-- **Releasing records to police.** Agree on a written request process.
-- **Who is an admin.** Keep the list short; remove staff who leave.
+## 4. Put the pages online (GitHub Pages)
+Repo → Settings → Pages → Deploy from branch → `main` / root. Then:
+- Drivers and passengers: `https://mvcashbel-art.github.io/etriketracker/`
+- LGU records: `https://mvcashbel-art.github.io/etriketracker/admin.html` (sign in with the email/password from step 1)
+
+## 5. Print QR stickers
+admin.html → sign in → **QR stickers** → type each e-trike's body number → Make stickers → Print.
+Put one sticker inside each e-trike where the passenger can scan it.
+
+## What gets recorded (in the Sheet)
+- **Shifts:** driver time in / time out (name, body number, phone).
+- **Tracks:** a GPS point about every 30 seconds while a driver is online.
+- **Trips:** passenger name and number (after scanning the QR), e-trike, driver, start/end time and place.
+- **Audit:** every staff login, search and export.
+Live positions are kept only briefly in the script's memory, not in the sheet.
+
+## Keep the Sheet private
+Share the Google Sheet only with people who really need to open it directly (the owner and maybe one backup).
+Anyone with edit access to the Sheet can see all records. Day-to-day, LGU staff use `admin.html`.
+
+## Things the LGU still has to decide
+- **Retention periods** (in `CFG`) and the **wording of the passenger consent** — have the Data Protection Officer / legal office review.
+- **Releasing records to police** — agree on a written request process.
+- **Who is an admin** — keep the list short.
 
 ## Known limits
-- The passenger's name/number are typed in by them and not verified (no SMS code yet).
-- Browsers stop sending location when the phone screen is off or the app is closed — drivers must keep the screen on.
-- Anyone who knows the database URL could try to add fake positions or trips (they cannot read or change closed records).
-  Fine for a pilot; for a full rollout, add driver login/PIN and move to a server.
-- The rules and the Firebase login steps are written to Firebase's documented behavior but I could not test them
-  against a real Firebase project from here; test with 2–3 phones before rollout.
+- **Speed:** Google scripts are slower than a real server. Expect positions to be about 5–15 seconds behind.
+- **Google limits:** a free Google account has daily limits on scripts. A pilot of a few dozen drivers should be fine,
+  but I have not tested it at that size. If it slows down or errors with many users, the next step is a proper server/database.
+- Passenger names/numbers are typed in and not verified (no SMS code).
+- Browsers stop sending location when the phone screen is off or the app is closed, so drivers must keep the screen on.
+- Anyone who knows the web app URL could try to send fake positions or trips (they cannot read records without the admin login).
+  Fine for a pilot; for a full rollout add driver PIN/login.
+- Five wrong admin passwords lock that email for 10 minutes (this also means someone could annoy staff by trying; wait it out).
+- I tested this with a simulator of Google's services, not on a real Google account. Test with 2–3 phones first.

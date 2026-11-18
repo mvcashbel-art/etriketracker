@@ -162,17 +162,17 @@
    SETTINGS — edit these (use the same values in admin.html)
    ============================================================ */
 const CONFIG = {
-  // Paste your Firebase Realtime Database URL to go LIVE, e.g.
-  // "https://etrike-finder-default-rtdb.asia-southeast1.firebasedatabase.app"
+  // After you deploy Code.gs (see SETUP.md) paste the Web app URL here, e.g.
+  // "https://script.google.com/macros/s/AKfycb.../exec"
   // Leave empty for DEMO mode (simulated trikes, nothing is shared or recorded).
-  FIREBASE_URL: "",
+  API_URL: "",
   ORG: "Municipality of Isabel",  // name shown in the passenger privacy notice
   CENTER: [10.9333, 124.4333],    // Isabel, Leyte
   ZOOM: 14,
   STALE_SEC: 90,                  // hide a trike if it hasn't updated in this long
-  SEND_EVERY_SEC: 5,              // driver -> server (live position)
+  SEND_EVERY_SEC: 8,              // driver -> server (live position)
   CRUMB_EVERY_SEC: 30,            // driver -> server (saved GPS trail for records)
-  POLL_EVERY_SEC: 5,              // passenger <- server
+  POLL_EVERY_SEC: 8,              // passenger <- server
   SPEED_KMH: 20                   // used for the ETA estimate
 };
 
@@ -198,7 +198,6 @@ const cleanPhone = p => String(p || '').replace(/[^\d+]/g, '');
 const bodyKey = s => String(s || '').trim().toUpperCase().replace(/[.$#\[\]\/\s]+/g, '_');
 // Day key in Philippine time (UTC+8), same on every phone
 const dayKey = (ms = Date.now()) => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10);
-const SV = { '.sv': 'timestamp' }; // Firebase: "server time"
 const rid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const isBusy = v => v.status === 'busy' || !!v.onTrip;
 
@@ -208,7 +207,7 @@ const isBusy = v => v.status === 'busy' || !!v.onTrip;
 const I18N = {
   en: {
     title:'E-Trike Finder', rider:'Passenger', driver:'Driver',
-    demo:'Demo mode — simulated e-trikes, nothing is recorded. Connect Firebase to go live.',
+    demo:'Demo mode — simulated e-trikes, nothing is recorded. Add your Google Sheet link to go live.',
     nearest:'Find nearest', fName:'Your name', fBody:'Body / plate number',
     fPhone:'Mobile number (passengers can call you)',
     stFree:'Available', stBusy:'With passenger', free:'Available', busy:'With passenger',
@@ -232,7 +231,7 @@ const I18N = {
   },
   ceb: {
     title:'Pangita og E-Trike', rider:'Pasahero', driver:'Drayber',
-    demo:'Demo — pasumbingay ra ang mga e-trike, walay narekord. I-connect ang Firebase aron mag-live.',
+    demo:'Demo — pasumbingay ra ang mga e-trike, walay narekord. Ibutang ang Google Sheet link aron mag-live.',
     nearest:'Labing duol', fName:'Imong ngalan', fBody:'Body / plate number',
     fPhone:'Numero sa telepono (matawgan ka sa pasahero)',
     stFree:'Bakante', stBusy:'Naay sakay', free:'Bakante', busy:'Naay sakay',
@@ -266,55 +265,10 @@ function applyLang(){
 }
 
 /* ============================================================
-   Backend: Firebase Realtime Database over plain REST (or in-memory demo)
+   Backend: Google Apps Script web app + Google Sheet (or in-memory demo)
    ============================================================ */
-const DEMO = !CONFIG.FIREBASE_URL;
-const FB = (CONFIG.FIREBASE_URL || '').replace(/\/+$/, '');
-const demoTree = { trikes: {}, trips: {}, shifts: {}, tracks: {} };
-function fillSv(o){
-  if (o && typeof o === 'object'){
-    if (o['.sv'] === 'timestamp') return Date.now();
-    const out = {}; for (const k in o) out[k] = fillSv(o[k]); return out;
-  }
-  return o;
-}
-function demoReq(method, path, body){
-  const seg = path.split('/').filter(Boolean);
-  let node = demoTree;
-  for (let i = 0; i < seg.length - 1; i++){
-    if (node[seg[i]] == null || typeof node[seg[i]] !== 'object'){
-      if (method === 'GET' || method === 'DELETE') return null;
-      node[seg[i]] = {};
-    }
-    node = node[seg[i]];
-  }
-  const last = seg[seg.length - 1];
-  if (method === 'GET') return node[last] ?? null;
-  if (method === 'PUT'){ node[last] = fillSv(body); return body; }
-  if (method === 'DELETE'){ delete node[last]; return null; }
-  if (method === 'PATCH'){
-    const cur = node[last];
-    if (cur == null || typeof cur !== 'object'){
-      const fresh = {}; let any = false;
-      for (const k in body) if (body[k] !== null){ fresh[k] = fillSv(body[k]); any = true; }
-      if (any) node[last] = fresh;
-    } else for (const k in body){ if (body[k] === null) delete cur[k]; else cur[k] = fillSv(body[k]); }
-    return body;
-  }
-}
-async function dbReq(method, path, body, opts = {}){
-  if (method === 'PUT' && body && typeof body === 'object'){      // drop null/undefined fields
-    body = Object.fromEntries(Object.entries(body).filter(([, v]) => v != null));
-  }
-  if (DEMO) return demoReq(method, path, body);
-  const r = await fetch(`${FB}/${path}.json`, {
-    method, cache: 'no-store', keepalive: !!opts.keepalive,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
-}
+const DEMO = !CONFIG.API_URL;
+const demoTree = { trikes: {} };
 (function seedDemo(){
   const names = ['Mang Jun','Kuya Rey','Tay Berto','Mang Dodong','Kuya Jomar','Mang Nonoy','Tay Ador','Kuya Ben'];
   names.forEach((n, i) => {
@@ -322,7 +276,7 @@ async function dbReq(method, path, body, opts = {}){
     demoTree.trikes['demo' + i] = {
       name: n, body: 'ET-' + String(10 + i * 7).padStart(3, '0'), phone: '',
       lat: CONFIG.CENTER[0] + Math.sin(ang) * r, lng: CONFIG.CENTER[1] + Math.cos(ang) * r,
-      status: Math.random() < .7 ? 'free' : 'busy', ts: Date.now(), _h: Math.random() * 6.283
+      status: Math.random() < .7 ? 'free' : 'busy', _h: Math.random() * 6.283
     };
   });
 })();
@@ -332,21 +286,46 @@ function demoStep(){
     v._h += (Math.random() - .5) * .6;
     const dLat = v.lat - CONFIG.CENTER[0], dLng = v.lng - CONFIG.CENTER[1];
     if (Math.hypot(dLat, dLng) > .02) v._h = Math.atan2(-dLng, -dLat);
-    const m = 28; // ~20 km/h for 5 s
+    const m = 28 * CONFIG.POLL_EVERY_SEC / 5; // ~20 km/h
     v.lat += m * Math.cos(v._h) / 111320;
     v.lng += m * Math.sin(v._h) / (111320 * Math.cos(v.lat * Math.PI / 180));
     if (Math.random() < .04) v.status = v.status === 'free' ? 'busy' : 'free';
-    v.ts = Date.now();
   });
 }
-const Backend = {
-  async list(){
-    if (DEMO) demoStep();
-    const data = await dbReq('GET', 'trikes');
-    return Object.entries(data || {}).map(([id, v]) => ({ id, ...v }));
-  },
-  remove(id){ return dbReq('DELETE', `trikes/${encodeURIComponent(id)}`, undefined, { keepalive: true }).catch(() => {}); }
-};
+function demoApi(action, p){
+  const T = demoTree.trikes;
+  if (action === 'live'){
+    demoStep();
+    return { ok: true, trikes: Object.entries(T).map(([id, v]) => ({ id, name: v.name, body: v.body, phone: v.phone, lat: v.lat, lng: v.lng, acc: v.acc || 0, status: v.status, onTrip: !!v.onTrip, age: 0 })) };
+  }
+  if (action === 'ping'){
+    const cur = T[p.id] || {};
+    T[p.id] = { name: p.name, body: p.body, phone: p.phone, lat: p.lat, lng: p.lng, acc: p.acc, status: p.status, onTrip: cur.onTrip || '' };
+    return { ok: true, onTrip: !!T[p.id].onTrip };
+  }
+  if (action === 'shiftEnd'){ delete T[p.driverId]; return { ok: true }; }
+  if (action === 'tripStart'){
+    const hit = Object.entries(T).find(([, v]) => bodyKey(v.body) === bodyKey(p.body));
+    if (hit) hit[1].onTrip = p.id;
+    return { ok: true, trikeId: hit ? hit[0] : null, driverName: hit ? hit[1].name : null };
+  }
+  if (action === 'tripEnd'){ Object.values(T).forEach(v => { if (v.onTrip === p.id) v.onTrip = ''; }); return { ok: true }; }
+  return { ok: true };
+}
+async function api(action, payload){
+  if (DEMO) return demoApi(action, payload || {});
+  let r;
+  if (action === 'live') r = await fetch(`${CONFIG.API_URL}?action=live&_=${Date.now()}`, { cache: 'no-store' });
+  else r = await fetch(CONFIG.API_URL, { method: 'POST', body: JSON.stringify({ action, ...payload }) }); // plain text body = no CORS preflight
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'error');
+  return j;
+}
+function beacon(action, payload){                       // used when the page is closing
+  try{ if (DEMO) demoApi(action, payload); else navigator.sendBeacon(CONFIG.API_URL, JSON.stringify({ action, ...payload })); }catch(e){}
+}
+const Backend = { async list(){ return (await api('live')).trikes; } };
 
 /* ============================================================
    Map
@@ -409,13 +388,13 @@ function sortTrikes(){
   });
 }
 async function refresh(){
+  if (document.hidden && trikes.length) return;   // save quota while the page is in the background
   try{
     const all = await Backend.list();
     loadFailed = false;
     const now = Date.now();
     trikes = all
-      .filter(v => v && typeof v.lat === 'number' && typeof v.lng === 'number' && v.status !== 'offline' &&
-                   (DEMO || now - (v.ts || 0) < CONFIG.STALE_SEC * 1000))
+      .filter(v => v && typeof v.lat === 'number' && typeof v.lng === 'number' && (v.age || 0) < CONFIG.STALE_SEC)
       .map(v => ({ ...v, dist: me ? km(me, v) : null }));
     sortTrikes();
   }catch(e){ loadFailed = true; }
@@ -516,29 +495,21 @@ async function startTrip(){
   }
   err.hidden = true; $('#startTripBtn').disabled = true;
   store.set('passenger', { name, phone: phoneRaw });
-  await refresh();                       // fresh look at who is signed in on this e-trike
-  const live = liveFor(tripBody);
   const id = rid('t');
-  const rec = {
-    body: tripBody, driverId: live ? (live.driverId || live.id) : null, driverName: live ? live.name : null,
-    driverPhone: live ? cleanPhone(live.phone) : null, pName: name, pPhone: phone, startAt: SV, status: 'active'
-  };
-  if (me){ rec.startLat = +me.lat.toFixed(6); rec.startLng = +me.lng.toFixed(6); }
-  try{ await dbReq('PUT', `trips/${id}`, rec); }
-  catch(e){ err.hidden = false; err.textContent = t('tripErr'); $('#startTripBtn').disabled = false; return; }
-  if (live) dbReq('PATCH', `trikes/${live.id}`, { onTrip: id }).catch(() => {}); // driver sees "passenger on board"
-  store.set('activeTrip', { id, body: tripBody, trikeId: live ? live.id : null, driverName: live ? live.name : null, startedAt: Date.now() });
-  if (live) selectedId = live.id;
+  let res;
+  try{
+    res = await api('tripStart', { id, body: tripBody, pName: name, pPhone: phone,
+      lat: me ? +me.lat.toFixed(6) : null, lng: me ? +me.lng.toFixed(6) : null });
+  }catch(e){ err.hidden = false; err.textContent = t('tripErr'); $('#startTripBtn').disabled = false; return; }
+  store.set('activeTrip', { id, body: tripBody, trikeId: res.trikeId || null, driverName: res.driverName || null, startedAt: Date.now() });
+  if (res.trikeId) selectedId = res.trikeId;
   tripView = 'active'; layoutSheets(); renderTrip(); renderMarkers();
   $('#startTripBtn').disabled = false;
 }
 async function endTrip(){
   const a = store.get('activeTrip'); if (!a) return;
-  const rec = { endAt: SV, status: 'done' };
-  if (me){ rec.endLat = +me.lat.toFixed(6); rec.endLng = +me.lng.toFixed(6); }
-  try{ await dbReq('PATCH', `trips/${a.id}`, rec); }
+  try{ await api('tripEnd', { id: a.id, lat: me ? +me.lat.toFixed(6) : null, lng: me ? +me.lng.toFixed(6) : null }); }
   catch(e){ const x = $('#aErr'); x.hidden = false; x.textContent = t('tripErr'); return; }
-  if (a.trikeId) dbReq('PATCH', `trikes/${a.trikeId}`, { onTrip: null }).catch(() => {});
   store.set('activeTrip', null);
   tripView = null; selectedId = null; layoutSheets(); refresh();
 }
@@ -598,30 +569,27 @@ function saveDriver(){
 }
 async function openShift(){
   try{
-    await dbReq('PUT', `shifts/${driver.shiftId}`, {
-      driverId: driver.id, name: driver.name, body: bodyKey(driver.body), phone: cleanPhone(driver.phone),
-      startAt: SV, status: 'open'
-    });
+    await api('shiftStart', { id: driver.shiftId, driverId: driver.id, name: driver.name, body: bodyKey(driver.body), phone: cleanPhone(driver.phone) });
     shiftOk = true;
   }catch(e){ shiftOk = false; }
 }
+let sending = false;
 async function sendNow(){
-  if (!driver.online || !lastFix) return;
+  if (!driver.online || !lastFix || sending) return;
+  sending = true;
+  const crumb = Date.now() - lastCrumb >= CONFIG.CRUMB_EVERY_SEC * 1000;
   try{
-    await dbReq('PATCH', `trikes/${driver.id}`, {
-      name: driver.name, body: driver.body, phone: cleanPhone(driver.phone),
-      lat: +lastFix.lat.toFixed(6), lng: +lastFix.lng.toFixed(6), acc: lastFix.acc, status: driver.status, ts: SV
-    });
-    const on = await dbReq('GET', `trikes/${driver.id}/onTrip`);   // a passenger scanned the QR?
-    driver.onTrip = !!on;
-    sendErr = false; lastSent = Date.now();
     if (!shiftOk) await openShift();
-    if (Date.now() - lastCrumb >= CONFIG.CRUMB_EVERY_SEC * 1000){
-      lastCrumb = Date.now();
-      dbReq('PUT', `tracks/${bodyKey(driver.body)}/${dayKey()}/${Date.now()}`, { lat: +lastFix.lat.toFixed(6), lng: +lastFix.lng.toFixed(6), d: driver.id }).catch(() => {});
-      if (driver.shiftId) dbReq('PATCH', `shifts/${driver.shiftId}`, { lastAt: SV }).catch(() => {});
-    }
+    const r = await api('ping', {
+      id: driver.id, name: driver.name, body: driver.body, phone: cleanPhone(driver.phone),
+      lat: +lastFix.lat.toFixed(6), lng: +lastFix.lng.toFixed(6), acc: lastFix.acc, status: driver.status,
+      shiftId: driver.shiftId, crumb
+    });
+    driver.onTrip = !!r.onTrip;        // a passenger scanned the QR?
+    sendErr = false; lastSent = Date.now();
+    if (crumb) lastCrumb = Date.now();
   }catch(e){ sendErr = true; }
+  sending = false;
   renderLive();
 }
 async function goOnline(){
@@ -629,7 +597,6 @@ async function goOnline(){
   if (!driver.name || !driver.body){ const e = $('#dErr'); e.hidden = false; e.textContent = t('needFields'); return; }
   driver.online = true; lastSent = 0; lastCrumb = 0; sendErr = false; shiftOk = false;
   driver.shiftId = rid('s');
-  store.set('openShift', driver.shiftId);
   openShift();
   startWatch();
   if (lastFix) sendNow();
@@ -637,13 +604,12 @@ async function goOnline(){
   try{ if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
   renderLive();
 }
-function goOffline(keepalive){
-  const sid = driver.shiftId;
+function goOffline(unloading){
+  const sid = driver.shiftId, did = driver.id;
   driver.online = false; driver.onTrip = false; driver.shiftId = null;
   clearInterval(sendTimer); sendTimer = null; lastSent = 0;
-  Backend.remove(driver.id);
-  if (sid){ dbReq('PATCH', `shifts/${sid}`, { status: 'closed', endAt: SV }, { keepalive: !!keepalive }).catch(() => {}); }
-  store.set('openShift', null);
+  if (unloading) beacon('shiftEnd', { id: sid, driverId: did });
+  else api('shiftEnd', { id: sid, driverId: did }).catch(() => {});
   try{ if (wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
   renderLive();
 }
@@ -685,9 +651,6 @@ if (driver.status === 'busy') $('#stFree').classList.remove('on');
 const savedP = store.get('passenger', null);
 if (savedP){ $('#pName').value = savedP.name || ''; $('#pPhone').value = savedP.phone || ''; }
 if (DEMO) $('#demoBanner').style.display = 'block';
-// A previous session ended without "Time out" (battery died, app swiped away): mark that shift as closed unexpectedly
-const orphan = store.get('openShift', null);
-if (orphan && !DEMO){ dbReq('PATCH', `shifts/${orphan}`, { status: 'closed', note: 'app closed unexpectedly' }).catch(() => {}); store.set('openShift', null); }
 tripView = store.get('activeTrip', null) ? 'active' : (tripBody ? 'start' : null);
 applyLang();
 setMode('rider');

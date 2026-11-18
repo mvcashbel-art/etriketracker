@@ -56,7 +56,7 @@
 </style>
 </head>
 <body>
-<div id="demoBanner" class="banner" hidden>DEMO MODE — sample data only. Put your Firebase URL and API key in the CONFIG to use real records. Any email/password works.</div>
+<div id="demoBanner" class="banner" hidden>DEMO MODE — sample data only. Put your Apps Script Web app URL in API_URL to use real records. Any email/password works here.</div>
 
 <!-- Login -->
 <div id="loginView" class="login">
@@ -152,12 +152,10 @@ ET-003</textarea></div>
 <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
 <script>
 /* ============================================================
-   SETTINGS — same FIREBASE_URL as index.html, plus the Web API key
-   (Firebase console → Project settings → General → Web API Key)
+   SETTINGS — API_URL is the Web app URL from your Google Apps Script (same one as in index.html)
    ============================================================ */
 const CONFIG = {
-  FIREBASE_URL: "",
-  FIREBASE_API_KEY: "",
+  API_URL: "",
   CENTER: [10.9333, 124.4333],
   ZOOM: 14,
   STALE_SEC: 90
@@ -176,11 +174,10 @@ function km(a, b){
   const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng/2)**2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
-const FB = (CONFIG.FIREBASE_URL || '').replace(/\/+$/, '');
-const DEMO = !FB;
+const DEMO = !CONFIG.API_URL;
 
 /* ============================================================
-   Demo data (so you can look around before Firebase is set up)
+   Demo data (so you can look around before the Google Sheet backend is set up)
    ============================================================ */
 const mock = { trikes: {}, trips: {}, shifts: {}, tracks: {}, admins: {} };
 function buildMock(){
@@ -205,59 +202,65 @@ function buildMock(){
   });
   mock.admins.demo = true;
 }
-function mockGet(path, q){
-  let node = mock;
-  for (const s of path.split('/').filter(Boolean)){ node = node == null ? null : node[s]; }
-  if (node == null) return null;
-  if (q.shallow) return Object.fromEntries(Object.keys(node).map(k => [k, true]));
-  return JSON.parse(JSON.stringify(node));
+
+function mockApi(action, p){
+  const now = Date.now();
+  if (action === 'live'){
+    Object.values(mock.trikes).forEach(v => { if (now - v.ts < 60000) v.ts = now; });
+    return { ok: true, trikes: Object.entries(mock.trikes).map(([id, v]) => ({ id, name: v.name, body: v.body, phone: v.phone, lat: v.lat, lng: v.lng, status: v.status, onTrip: !!v.onTrip, age: Math.round((now - v.ts) / 1000) })) };
+  }
+  if (action === 'trips') return { ok: true, trips: Object.entries(mock.trips).map(([id, v]) => ({ id, ...v })) };
+  if (action === 'shifts') return { ok: true, shifts: Object.entries(mock.shifts).map(([id, v]) => {
+    const lv = mock.trikes[v.driverId], o = { id, ...v };
+    o.state = v.status === 'open' ? ((lv && now - lv.ts < 120000) ? 'on' : 'cut') : 'out';
+    if (o.state === 'cut' && !o.endAt) o.endAt = o.lastAt;
+    return o; }) };
+  if (action === 'bodies') return { ok: true, bodies: [...new Set(Object.values(mock.shifts).map(v => v.body))].sort() };
+  const win = () => [atManila(p.day, p.from), atManila(p.day, p.to || '23:59') + 59999];
+  if (action === 'track'){
+    const [f, t] = win(), d = (mock.tracks[bodyKey(p.body)] || {})[p.day] || {};
+    return { ok: true, points: Object.entries(d).map(([ts, v]) => ({ t: +ts, lat: v.lat, lng: v.lng })).filter(x => x.t >= f && x.t <= t).sort((a, b) => a.t - b.t) };
+  }
+  if (action === 'near'){
+    const [f, t] = win(), res = [];
+    Object.entries(mock.tracks).forEach(([b, days]) => {
+      let best = null, n = 0;
+      Object.entries(days[p.day] || {}).forEach(([ts, v]) => {
+        if (+ts < f || +ts > t) return;
+        const d = km(p, v) * 1000;
+        if (d <= p.radius){ n++; if (!best || d < best.d) best = { d, t: +ts }; }
+      });
+      if (!best) return;
+      const drivers = [...new Set(Object.values(mock.shifts).filter(x => x.body === b && x.startAt <= best.t).map(x => `${x.name} (${x.phone || '—'})`))];
+      const trips = Object.values(mock.trips).filter(x => x.body === b && x.startAt <= t && (x.endAt || now) >= f).map(x => ({ pName: x.pName, pPhone: x.pPhone }));
+      res.push({ body: b, d: best.d, t: best.t, n, drivers, trips });
+    });
+    return { ok: true, results: res.sort((a, b) => a.d - b.d) };
+  }
+  return { ok: true };
 }
 
 /* ============================================================
-   Auth (Firebase Auth REST) + database access
+   Talking to the Google Apps Script backend
    ============================================================ */
 let auth = null;
-async function signIn(email, password){
-  if (DEMO){ auth = { uid: 'demo', email: email || 'demo@example.com', token: 'demo', exp: Infinity }; buildMock(); return; }
-  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(CONFIG.FIREBASE_API_KEY)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, returnSecureToken: true })
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(/INVALID|EMAIL|PASSWORD|CREDENTIAL/i.test(j.error?.message || '') ? 'Wrong email or password.' : (j.error?.message || 'Sign-in failed.'));
-  auth = { uid: j.localId, email: j.email, token: j.idToken, refresh: j.refreshToken, exp: Date.now() + (parseInt(j.expiresIn, 10) - 120) * 1000 };
-  let ok = null;
-  try{ ok = await dbGet(`admins/${auth.uid}`); }catch(e){}
-  if (ok !== true){ auth = null; throw new Error('This account is not an authorized LGU administrator.'); }
-}
-async function ensureToken(){
-  if (DEMO || Date.now() < auth.exp) return;
-  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(CONFIG.FIREBASE_API_KEY)}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(auth.refresh)
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error('Session expired. Please sign in again.');
-  auth.token = j.id_token; auth.refresh = j.refresh_token; auth.exp = Date.now() + (parseInt(j.expires_in, 10) - 120) * 1000;
-}
-async function dbGet(path, q = {}){
-  if (DEMO) return mockGet(path, q);
-  await ensureToken();
-  const p = new URLSearchParams();
-  if (q.shallow) p.set('shallow', 'true');
-  if (q.last){ p.set('orderBy', '"startAt"'); p.set('limitToLast', String(q.last)); }
-  p.set('auth', auth ? auth.token : '');
-  const r = await fetch(`${FB}/${path}.json?${p}`, { cache: 'no-store' });
+async function api(action, payload){
+  if (DEMO) return mockApi(action, payload || {});
+  let r;
+  if (action === 'live') r = await fetch(`${CONFIG.API_URL}?action=live&_=${Date.now()}`, { cache: 'no-store' });
+  else r = await fetch(CONFIG.API_URL, { method: 'POST', body: JSON.stringify({ action, token: auth ? auth.token : '', ...payload }) });
   if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'Error');
+  return j;
 }
-function audit(action, detail){
-  if (DEMO || !auth) return;
-  const id = Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-  ensureToken().then(() => fetch(`${FB}/audit/${id}.json?auth=${encodeURIComponent(auth.token)}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uid: auth.uid, email: auth.email, action, detail: String(detail || '').slice(0, 300), at: { '.sv': 'timestamp' } })
-  })).catch(() => {});
+async function signIn(email, password){
+  if (DEMO){ auth = { email: email || 'demo@example.com', token: 'demo' }; buildMock(); return; }
+  const j = await api('login', { email, password });
+  auth = { email: j.email, token: j.token };
 }
+// Staff activity (views, searches, logins) is logged by the server. This logs the things that happen only in the browser.
+function audit(what, detail){ if (!DEMO && auth) api('log', { what, detail }).catch(() => {}); }
 
 /* ============================================================
    Tabs
@@ -285,10 +288,9 @@ $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) showTab(
 const liveMarkers = {};
 async function refreshLive(){
   let data;
-  try{ data = await dbGet('trikes'); }catch(e){ $('#liveCount').textContent = 'Cannot load (' + esc(e.message) + ')'; return; }
+  try{ data = (await api('live')).trikes; }catch(e){ $('#liveCount').textContent = 'Cannot load (' + esc(e.message) + ')'; return; }
   const now = Date.now();
-  if (DEMO) Object.values(mock.trikes).forEach(v => { if (now - v.ts < 60000) v.ts = now; });
-  const list = Object.entries(data || {}).map(([id, v]) => ({ id, ...v, age: (now - (v.ts || 0)) / 1000 }))
+  const list = (data || []).map(v => ({ ...v }))
     .filter(v => typeof v.lat === 'number').sort((a, b) => String(a.body).localeCompare(String(b.body)));
   const online = list.filter(v => v.age < CONFIG.STALE_SEC).length;
   $('#liveCount').textContent = `${online} online · ${list.length - online} silent`;
@@ -326,9 +328,8 @@ function range(fromId, toId){
 }
 async function loadTrips(){
   $('#tNote').textContent = 'Loading…';
-  try{ const d = await dbGet('trips', { last: 1000 }); trips = Object.entries(d || {}).map(([id, v]) => ({ id, ...v })); }
+  try{ trips = (await api('trips')).trips; }
   catch(e){ $('#tNote').textContent = 'Cannot load: ' + e.message; return; }
-  audit('view-trips', `${$('#tFrom').value || '*'}..${$('#tTo').value || '*'} q=${$('#tQ').value}`);
   renderTrips();
 }
 function tripRows(){
@@ -357,9 +358,8 @@ $('#tCsv').onclick = () => {
 };
 async function loadShifts(){
   $('#sNote').textContent = 'Loading…';
-  try{ const d = await dbGet('shifts', { last: 1000 }); shifts = Object.entries(d || {}).map(([id, v]) => ({ id, ...v })); }
+  try{ shifts = (await api('shifts')).shifts; }
   catch(e){ $('#sNote').textContent = 'Cannot load: ' + e.message; return; }
-  audit('view-shifts', `${$('#sFrom').value || '*'}..${$('#sTo').value || '*'} q=${$('#sQ').value}`);
   renderShifts();
 }
 function shiftRows(){
@@ -371,11 +371,11 @@ function shiftRows(){
 function renderShifts(){
   const rows = shiftRows();
   $('#sBody').innerHTML = rows.map(v => {
-    const open = v.status === 'open', cut = v.note;
+    const on = v.state === 'on', cut = v.state === 'cut';
     return `<tr><td>${esc(fmt(v.startAt))}</td>
-      <td>${open ? '—' : esc(fmt(v.endAt || v.lastAt))}${cut ? '<small>' + esc(cut) + '</small>' : ''}</td>
+      <td>${on ? '—' : esc(fmt(v.endAt || v.lastAt))}${cut ? '<small>' + esc(v.note || 'no time-out recorded') + '</small>' : ''}</td>
       <td><b>${esc(v.body)}</b></td><td>${esc(v.name)}</td><td>${esc(v.phone || '')}</td>
-      <td><span class="tag ${open ? 'ok' : (cut ? 'warn' : 'gray')}">${open ? 'on duty' : (cut ? 'cut off' : 'timed out')}</span></td></tr>`;
+      <td><span class="tag ${on ? 'ok' : (cut ? 'warn' : 'gray')}">${on ? 'on duty' : (cut ? 'cut off' : 'timed out')}</span></td></tr>`;
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:20px">No records in this range.</td></tr>';
   $('#sNote').textContent = `${rows.length} record(s) shown. "Cut off" = the driver's phone closed the app without time-out (time shown is the last update).`;
 }
@@ -384,19 +384,17 @@ $('#sCsv').onclick = () => {
   if (!shifts) return;
   audit('export-shifts', `${$('#sFrom').value || '*'}..${$('#sTo').value || '*'} q=${$('#sQ').value}`);
   download('time-in-out.csv', [['Time in', 'Time out', 'E-trike', 'Driver', 'Phone', 'Status']]
-    .concat(shiftRows().map(v => [fmt(v.startAt), v.status === 'open' ? '' : fmt(v.endAt || v.lastAt), v.body, v.name, v.phone, v.status])));
+    .concat(shiftRows().map(v => [fmt(v.startAt), v.state === 'on' ? '' : fmt(v.endAt || v.lastAt), v.body, v.name, v.phone, v.state])));
 };
 
 /* ---------- Trace & search ---------- */
 async function fillBodies(){
-  try{ const keys = Object.keys(await dbGet('tracks', { shallow: true }) || {}).sort();
+  try{ const keys = (await api('bodies')).bodies;
     $('#bodies').innerHTML = keys.map(k => `<option value="${esc(k)}">`).join(''); }catch(e){}
   if (!$('#rDay').value) $('#rDay').value = $('#nDay').value = dayOf();
 }
 async function getTrack(body, day, from, to){
-  const d = await dbGet(`tracks/${bodyKey(body)}/${day}`);
-  const f = atManila(day, from), t = atManila(day, to) + 59999;
-  return Object.entries(d || {}).map(([ts, v]) => ({ t: +ts, lat: v.lat, lng: v.lng })).filter(p => p.t >= f && p.t <= t).sort((a, b) => a.t - b.t);
+  return (await api('track', { body, day, from, to })).points;
 }
 let layerTrace = null, pickMarker = null, pickCircle = null, picked = null;
 function clearTrace(){ if (layerTrace) maps.trace.removeLayer(layerTrace); layerTrace = L.layerGroup().addTo(maps.trace); }
@@ -415,7 +413,6 @@ function drawRoute(pts, label){
 $('#rGo').onclick = async () => {
   const body = $('#rBody').value, day = $('#rDay').value;
   if (!body || !day) return;
-  audit('route', `${bodyKey(body)} ${day} ${$('#rFrom').value}-${$('#rTo').value}`);
   const pts = await getTrack(body, day, $('#rFrom').value, $('#rTo').value).catch(() => []);
   if (!drawRoute(pts, bodyKey(body))) { clearTrace(); alert('No saved GPS trail for that e-trike and time.'); }
 };
@@ -431,35 +428,16 @@ $('#nGo').onclick = async () => {
   if (!picked){ alert('Click the map first to mark the place.'); return; }
   const day = $('#nDay').value, from = $('#nFrom').value, to = $('#nTo').value, rad = +$('#nRad').value || 300;
   const out = $('#nOut'); out.innerHTML = '<p class="note">Searching…</p>';
-  audit('near-search', `${picked.lat.toFixed(5)},${picked.lng.toFixed(5)} r=${rad} ${day} ${from}-${to}`);
   try{
-    if (!trips) await loadTrips(); if (!shifts) await loadShifts();
-    const bodies = Object.keys(await dbGet('tracks', { shallow: true }) || {});
-    const t0 = atManila(day, from), t1 = atManila(day, to) + 59999, found = [];
-    for (const b of bodies){
-      const pts = await getTrack(b, day, '00:00', '23:59');
-      let best = null, n = 0;
-      for (const p of pts){
-        if (p.t < t0 || p.t > t1) continue;
-        const d = km(picked, p) * 1000;
-        if (d <= rad){ n++; if (!best || d < best.d) best = { d, t: p.t }; }
-      }
-      if (best){
-        const dr = [...new Set((shifts || []).filter(s => s.body === b && s.startAt <= best.t && (s.status === 'open' || (s.endAt || s.lastAt || 0) >= best.t - 60000)).map(s => `${s.name} (${s.phone || '—'})`))];
-        const tp = (trips || []).filter(x => x.body === b && x.startAt <= t1 && (x.endAt || Date.now()) >= t0);
-        found.push({ body: b, d: best.d, t: best.t, n, dr, tp });
-      }
-    }
-    found.sort((a, b) => a.d - b.d);
+    const found = (await api('near', { lat: picked.lat, lng: picked.lng, radius: rad, day, from, to })).results;
     out.innerHTML = found.length ? found.map(f => `<div class="res" data-body="${esc(f.body)}"><b>${esc(f.body)}</b>
         <span class="tag ok" style="float:right">${Math.round(f.d)} m at ${esc(tm(f.t))}</span>
-        <small style="color:#475569;display:block">Driver: ${f.dr.length ? esc(f.dr.join('; ')) : 'no time-in record found'}</small>
-        <small style="color:#475569;display:block">Passenger trips in window: ${f.tp.length ? esc(f.tp.map(x => `${x.pName} (${x.pPhone})`).join('; ')) : 'none recorded'}</small></div>`).join('')
+        <small style="color:#475569;display:block">Driver: ${f.drivers.length ? esc(f.drivers.join('; ')) : 'no time-in record found'}</small>
+        <small style="color:#475569;display:block">Passenger trips in window: ${f.trips.length ? esc(f.trips.map(x => `${x.pName} (${x.pPhone})`).join('; ')) : 'none recorded'}</small></div>`).join('')
       : '<p class="note">No e-trike was recorded within that radius and time.</p>';
     out.onclick = async e => {
       const c = e.target.closest('.res'); if (!c) return;
-      const pts = await getTrack(c.dataset.body, day, from, to);
-      drawRoute(pts, c.dataset.body);
+      drawRoute(await getTrack(c.dataset.body, day, from, to), c.dataset.body);
     };
   }catch(e){ out.innerHTML = `<p class="err">Search failed: ${esc(e.message)}</p>`; }
 };
@@ -485,7 +463,6 @@ async function doLogin(){
     await signIn($('#email').value.trim(), $('#pass').value);
     $('#loginView').hidden = true; $('#appView').hidden = false;
     $('#who').textContent = auth.email;
-    audit('login', '');
     showTab('live');
   }catch(e){ err.hidden = false; err.textContent = e.message; }
   $('#loginBtn').disabled = false;
