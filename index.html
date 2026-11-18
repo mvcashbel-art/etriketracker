@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<title>E-Trike Finder</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --teal:#0f766e; --teal-d:#0b5a54; --teal-l:#ccfbf1;
+    --amber:#d97706; --amber-l:#fef3c7;
+    --ink:#0f172a; --mute:#64748b; --line:#e2e8f0; --bg:#f8fafc; --red:#dc2626;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);
+       display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  header{background:var(--teal);color:#fff;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));
+         display:flex;align-items:center;gap:10px;z-index:1200}
+  header h1{font-size:17px;font-weight:700;letter-spacing:.2px;flex:1;white-space:nowrap}
+  .tabs{display:flex;background:rgba(0,0,0,.18);border-radius:999px;padding:3px}
+  .tabs button{border:0;background:transparent;color:#fff;font:600 13px inherit;font-family:inherit;padding:6px 12px;border-radius:999px;cursor:pointer}
+  .tabs button.on{background:#fff;color:var(--teal)}
+  .lang{border:1px solid rgba(255,255,255,.5);background:transparent;color:#fff;font:600 12px inherit;font-family:inherit;padding:5px 8px;border-radius:8px;cursor:pointer}
+  #demoBanner{background:var(--amber-l);color:#92400e;font-size:12px;padding:5px 12px;text-align:center;display:none}
+  main{flex:1;position:relative;min-height:0}
+  #map{position:absolute;inset:0;z-index:1}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:1100;background:#fff;border-radius:18px 18px 0 0;
+         box-shadow:0 -6px 24px rgba(15,23,42,.18);max-height:62%;display:flex;flex-direction:column;
+         padding-bottom:env(safe-area-inset-bottom)}
+  #riderSheet{max-height:46%}
+  .sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 4px;flex:none}
+  .sheet-head{display:flex;align-items:center;gap:8px;padding:4px 14px 10px}
+  .sheet-head .title{flex:1;font-weight:700;font-size:15px}
+  .sheet-head .sub{font-size:12px;color:var(--mute);font-weight:400;display:block;margin-top:1px}
+  .btn{border:0;border-radius:10px;font:600 14px inherit;font-family:inherit;padding:10px 14px;cursor:pointer;background:var(--teal);color:#fff}
+  .btn:active{background:var(--teal-d)}
+  .btn.ghost{background:var(--teal-l);color:var(--teal-d)}
+  .btn.red{background:var(--red)}
+  .btn.sm{padding:7px 10px;font-size:13px}
+  .btn[disabled]{opacity:.45;pointer-events:none}
+  .btn.full{width:100%;padding:13px}
+  .list{overflow:auto;padding:0 10px 12px;-webkit-overflow-scrolling:touch}
+  .card{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#fff;cursor:pointer}
+  .card.sel{border-color:var(--teal);box-shadow:0 0 0 2px var(--teal-l)}
+  .card .row{display:flex;align-items:center;gap:10px}
+  .card .ico{font-size:26px;line-height:1}
+  .card .main{flex:1;min-width:0}
+  .card .name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .meta{font-size:12.5px;color:var(--mute);margin-top:2px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:1px}
+  .badge.free{background:var(--teal-l);color:var(--teal-d)}
+  .badge.busy{background:var(--amber-l);color:#92400e}
+  .dist{text-align:right;font-weight:800;font-size:16px;color:var(--teal-d);white-space:nowrap}
+  .dist small{display:block;font-weight:500;font-size:11.5px;color:var(--mute)}
+  .actions{display:flex;gap:8px;margin-top:10px}
+  .actions .btn{flex:1;text-align:center;text-decoration:none}
+  .empty{text-align:center;color:var(--mute);padding:18px 10px;font-size:14px}
+  .hint{font-size:12px;color:var(--mute);padding:0 14px 8px}
+  .form{padding:6px 14px 14px;overflow:auto}
+  .field{margin-bottom:10px}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--mute);margin-bottom:3px}
+  .field input{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;font:15px inherit;font-family:inherit}
+  .seg{display:flex;gap:8px;margin-bottom:10px}
+  .seg button{flex:1;border:2px solid var(--line);background:#fff;border-radius:10px;padding:10px;font:600 14px inherit;font-family:inherit;cursor:pointer}
+  .seg button.on.free{border-color:var(--teal);background:var(--teal-l);color:var(--teal-d)}
+  .seg button.on.busy{border-color:var(--amber);background:var(--amber-l);color:#92400e}
+  .live{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mute);margin:8px 0}
+  .dot{width:10px;height:10px;border-radius:50%;background:#94a3b8;flex:none}
+  .dot.on{background:#16a34a;box-shadow:0 0 0 4px rgba(22,163,74,.2);animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 7px rgba(22,163,74,.05)}}
+  .err{color:var(--red);font-size:13px;margin:6px 0}
+  .onboard{background:var(--amber-l);color:#92400e;font-weight:700;border-radius:10px;padding:10px 12px;margin-bottom:8px;text-align:center}
+  .tripHead{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:var(--bg);border-radius:12px}
+  .tripHead .ico{font-size:30px}
+  .tripHead .name{font-weight:800;font-size:17px}
+  .tripHead .meta{font-size:13px;color:var(--mute);margin-top:2px}
+  .consent{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--mute);margin:4px 0 10px;line-height:1.4}
+  .consent input{margin-top:2px;flex:none}
+  .okbox{background:var(--teal-l);color:var(--teal-d);border-radius:10px;padding:10px 12px;font-size:13px;margin:10px 0}
+  .trike-pin{font-size:24px;line-height:34px;text-align:center;width:34px;height:34px;border-radius:50%;background:#fff;
+             border:3px solid var(--teal);box-shadow:0 2px 6px rgba(0,0,0,.3)}
+  .trike-pin.busy{border-color:var(--amber);filter:grayscale(.3)}
+  .trike-pin.sel{transform:scale(1.25);border-color:#0ea5e9}
+  .me-pin{width:16px;height:16px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 6px rgba(37,99,235,.25)}
+  .leaflet-container{font-family:inherit}
+  .fab{position:absolute;right:12px;top:12px;z-index:1000;display:flex;flex-direction:column;gap:8px}
+  .fab button{width:44px;height:44px;border-radius:50%;border:0;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.3);font-size:20px;cursor:pointer}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛺 <span data-i="title">E-Trike Finder</span></h1>
+  <div class="tabs">
+    <button id="tabRider" class="on" data-i="rider">Passenger</button>
+    <button id="tabDriver" data-i="driver">Driver</button>
+  </div>
+  <button class="lang" id="langBtn">EN</button>
+</header>
+<div id="demoBanner" data-i="demo">Demo mode — simulated e-trikes.</div>
+
+<main>
+  <div id="map"></div>
+  <div class="fab"><button id="locBtn" aria-label="Locate me">📍</button></div>
+
+  <!-- Passenger: list of e-trikes -->
+  <section class="sheet" id="riderSheet">
+    <div class="grab"></div>
+    <div class="sheet-head">
+      <div class="title"><span id="countTxt"></span><span class="sub" id="subTxt"></span></div>
+      <button class="btn sm" id="nearestBtn" data-i="nearest">Find nearest</button>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- Passenger: trip (opened from the QR sticker inside the e-trike) -->
+  <section class="sheet" id="tripSheet" hidden>
+    <div class="grab"></div>
+    <div class="form" id="tripStart">
+      <div class="tripHead"><div class="ico">🛺</div><div><div class="name" id="tBody"></div><div class="meta" id="tDriver"></div></div></div>
+      <div class="field"><label data-i="pName">Your name</label><input id="pName" autocomplete="name" maxlength="40"></div>
+      <div class="field"><label data-i="pPhone">Your mobile number</label><input id="pPhone" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="09XX XXX XXXX"></div>
+      <label class="consent"><input type="checkbox" id="pConsent"><span id="consentTxt"></span></label>
+      <div class="err" id="tErr" hidden></div>
+      <button class="btn full" id="startTripBtn" data-i="startTrip">Start trip</button>
+      <button class="btn ghost full" id="skipTripBtn" style="margin-top:8px;padding:10px" data-i="skipTrip">Just look at the map</button>
+    </div>
+    <div class="form" id="tripActive" hidden>
+      <div class="tripHead"><div class="ico">🛺</div><div><div class="name" id="aBody"></div><div class="meta" id="aMeta"></div></div></div>
+      <div class="okbox" data-i="tripSaved">This trip is recorded for your safety.</div>
+      <div class="err" id="aErr" hidden></div>
+      <button class="btn red full" id="endTripBtn" data-i="endTrip">End trip</button>
+    </div>
+  </section>
+
+  <!-- Driver -->
+  <section class="sheet" id="driverSheet" hidden>
+    <div class="grab"></div>
+    <div class="form">
+      <div class="onboard" id="onBoard" hidden data-i="onBoard">🧍 Passenger on board</div>
+      <div class="field"><label data-i="fName">Your name</label><input id="dName" autocomplete="name" maxlength="30"></div>
+      <div class="field"><label data-i="fBody">Body / plate number</label><input id="dBody" maxlength="12"></div>
+      <div class="field"><label data-i="fPhone">Mobile number (passengers can call you)</label><input id="dPhone" inputmode="tel" maxlength="16" placeholder="09XX XXX XXXX"></div>
+      <div class="seg">
+        <button id="stFree" class="free on" data-i="stFree">Available</button>
+        <button id="stBusy" class="busy" data-i="stBusy">With passenger</button>
+      </div>
+      <div class="live"><span class="dot" id="liveDot"></span><span id="liveTxt"></span></div>
+      <div class="err" id="dErr" hidden></div>
+      <button class="btn full" id="goBtn" data-i="goOnline">Go online</button>
+      <p class="hint" style="padding:8px 0 0" data-i="keepOn">Keep this screen on while online so your location keeps updating.</p>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ============================================================
+   SETTINGS — edit these (use the same values in admin.html)
+   ============================================================ */
+const CONFIG = {
+  // Paste your Firebase Realtime Database URL to go LIVE, e.g.
+  // "https://etrike-finder-default-rtdb.asia-southeast1.firebasedatabase.app"
+  // Leave empty for DEMO mode (simulated trikes, nothing is shared or recorded).
+  FIREBASE_URL: "",
+  ORG: "Municipality of Isabel",  // name shown in the passenger privacy notice
+  CENTER: [10.9333, 124.4333],    // Isabel, Leyte
+  ZOOM: 14,
+  STALE_SEC: 90,                  // hide a trike if it hasn't updated in this long
+  SEND_EVERY_SEC: 5,              // driver -> server (live position)
+  CRUMB_EVERY_SEC: 30,            // driver -> server (saved GPS trail for records)
+  POLL_EVERY_SEC: 5,              // passenger <- server
+  SPEED_KMH: 20                   // used for the ETA estimate
+};
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+function km(a, b){
+  const R = 6371, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const fmtDist = d => d < 1 ? Math.round(d * 100) * 10 + ' m' : d.toFixed(1) + ' km';
+const etaMin = d => Math.max(1, Math.round(d * 1.3 / CONFIG.SPEED_KMH * 60)); // 1.3 = roads aren't straight
+const cleanPhone = p => String(p || '').replace(/[^\d+]/g, '');
+// Body numbers are used as database keys, so normalise them the same way everywhere (also in admin.html)
+const bodyKey = s => String(s || '').trim().toUpperCase().replace(/[.$#\[\]\/\s]+/g, '_');
+// Day key in Philippine time (UTC+8), same on every phone
+const dayKey = (ms = Date.now()) => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10);
+const SV = { '.sv': 'timestamp' }; // Firebase: "server time"
+const rid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const isBusy = v => v.status === 'busy' || !!v.onTrip;
+
+/* ============================================================
+   Language (English / Bisaya)
+   ============================================================ */
+const I18N = {
+  en: {
+    title:'E-Trike Finder', rider:'Passenger', driver:'Driver',
+    demo:'Demo mode — simulated e-trikes, nothing is recorded. Connect Firebase to go live.',
+    nearest:'Find nearest', fName:'Your name', fBody:'Body / plate number',
+    fPhone:'Mobile number (passengers can call you)',
+    stFree:'Available', stBusy:'With passenger', free:'Available', busy:'With passenger',
+    goOnline:'Time in / Go online', goOffline:'Time out / Go offline',
+    keepOn:'Keep this screen on while online so your location keeps updating. Your time in/out and route are recorded by the LGU.',
+    call:'Call', noNumber:'No number', min:'min',
+    countN:n=>`${n} e-trike${n===1?'':'s'} available`, none:'No e-trikes online right now',
+    allowLoc:'Allow location to see distances', nearYou:'Sorted by distance from you',
+    showMap:'Show on map', needFields:'Please enter your name and body number.',
+    gpsDenied:'Location blocked. Allow location for this site in your browser settings.',
+    gpsWait:'Waiting for GPS…', offline:'You are offline — passengers cannot see you.',
+    sharing:'Sharing your location', lastSent:'last update', netErr:'Cannot reach server. Retrying…',
+    loadErr:'Cannot load e-trikes. Retrying…',
+    onBoard:'🧍 Passenger on board',
+    pName:'Your name', pPhone:'Your mobile number', startTrip:'Start trip', skipTrip:'Just look at the map',
+    endTrip:'End trip', tripSaved:'This trip is recorded for your safety.',
+    consent:o=>`I agree that my name, mobile number and trip details are saved by the ${o} for passenger safety and for investigating incidents only (Data Privacy Act of 2012).`,
+    needPassenger:'Please enter your name, a valid mobile number, and tick the box.',
+    driverLabel:'Driver', noDriver:'Driver is not signed in — the trip will be saved under this e-trike number.',
+    started:'Started', tripErr:'Could not save the trip. Check your connection and try again.'
+  },
+  ceb: {
+    title:'Pangita og E-Trike', rider:'Pasahero', driver:'Drayber',
+    demo:'Demo — pasumbingay ra ang mga e-trike, walay narekord. I-connect ang Firebase aron mag-live.',
+    nearest:'Labing duol', fName:'Imong ngalan', fBody:'Body / plate number',
+    fPhone:'Numero sa telepono (matawgan ka sa pasahero)',
+    stFree:'Bakante', stBusy:'Naay sakay', free:'Bakante', busy:'Naay sakay',
+    goOnline:'Time in / Pag-online', goOffline:'Time out / Pag-offline',
+    keepOn:'Ayaw ipalong ang screen samtang online aron magpadayon ang pag-update sa imong location. Narekord sa LGU ang imong time in/out ug ruta.',
+    call:'Tawag', noNumber:'Walay numero', min:'min',
+    countN:n=>`${n} ka e-trike ang bakante`, none:'Wala pay e-trike nga online karon',
+    allowLoc:'Tuguti ang location aron makita ang gilay-on', nearYou:'Gihan-ay pinaagi sa gilay-on gikan nimo',
+    showMap:'Ipakita sa mapa', needFields:'Palihug ibutang ang imong ngalan ug body number.',
+    gpsDenied:'Gibabagan ang location. Tuguti kini sa browser settings.',
+    gpsWait:'Naghulat sa GPS…', offline:'Offline ka — dili ka makita sa mga pasahero.',
+    sharing:'Gi-share ang imong location', lastSent:'katapusang update', netErr:'Dili maabot ang server. Misulay pag-usab…',
+    loadErr:'Dili ma-load ang mga e-trike. Misulay pag-usab…',
+    onBoard:'🧍 Naay pasahero nga sakay',
+    pName:'Imong ngalan', pPhone:'Imong numero sa telepono', startTrip:'Sugdi ang biyahe', skipTrip:'Mapa ra ang tan-awon',
+    endTrip:'Tapuson ang biyahe', tripSaved:'Narekord kini nga biyahe alang sa imong kaluwasan.',
+    consent:o=>`Miuyon ako nga ang akong ngalan, numero sa telepono ug detalye sa biyahe tipigan sa ${o} alang lang sa kaluwasan sa pasahero ug pag-imbestigar sa mga insidente (Data Privacy Act of 2012).`,
+    needPassenger:'Palihug ibutang ang imong ngalan, saktong numero, ug i-tsek ang kahon.',
+    driverLabel:'Drayber', noDriver:'Wala pa naka-sign in ang drayber — matipigan ang biyahe sa numero niini nga e-trike.',
+    started:'Nagsugod', tripErr:'Wala matipigan ang biyahe. Susiha ang koneksyon ug sulayi pag-usab.'
+  }
+};
+let lang = store.get('lang', 'en');
+const t = (k, ...a) => { const v = (I18N[lang] || I18N.en)[k] ?? I18N.en[k] ?? k; return typeof v === 'function' ? v(...a) : v; };
+function applyLang(){
+  document.documentElement.lang = lang === 'ceb' ? 'ceb' : 'en';
+  $('#langBtn').textContent = lang === 'ceb' ? 'BIS' : 'EN';
+  document.querySelectorAll('[data-i]').forEach(el => { el.textContent = t(el.dataset.i); });
+  $('#consentTxt').textContent = t('consent', CONFIG.ORG);
+  renderList(); renderLive(); renderTrip();
+}
+
+/* ============================================================
+   Backend: Firebase Realtime Database over plain REST (or in-memory demo)
+   ============================================================ */
+const DEMO = !CONFIG.FIREBASE_URL;
+const FB = (CONFIG.FIREBASE_URL || '').replace(/\/+$/, '');
+const demoTree = { trikes: {}, trips: {}, shifts: {}, tracks: {} };
+function fillSv(o){
+  if (o && typeof o === 'object'){
+    if (o['.sv'] === 'timestamp') return Date.now();
+    const out = {}; for (const k in o) out[k] = fillSv(o[k]); return out;
+  }
+  return o;
+}
+function demoReq(method, path, body){
+  const seg = path.split('/').filter(Boolean);
+  let node = demoTree;
+  for (let i = 0; i < seg.length - 1; i++){
+    if (node[seg[i]] == null || typeof node[seg[i]] !== 'object'){
+      if (method === 'GET' || method === 'DELETE') return null;
+      node[seg[i]] = {};
+    }
+    node = node[seg[i]];
+  }
+  const last = seg[seg.length - 1];
+  if (method === 'GET') return node[last] ?? null;
+  if (method === 'PUT'){ node[last] = fillSv(body); return body; }
+  if (method === 'DELETE'){ delete node[last]; return null; }
+  if (method === 'PATCH'){
+    const cur = node[last];
+    if (cur == null || typeof cur !== 'object'){
+      const fresh = {}; let any = false;
+      for (const k in body) if (body[k] !== null){ fresh[k] = fillSv(body[k]); any = true; }
+      if (any) node[last] = fresh;
+    } else for (const k in body){ if (body[k] === null) delete cur[k]; else cur[k] = fillSv(body[k]); }
+    return body;
+  }
+}
+async function dbReq(method, path, body, opts = {}){
+  if (method === 'PUT' && body && typeof body === 'object'){      // drop null/undefined fields
+    body = Object.fromEntries(Object.entries(body).filter(([, v]) => v != null));
+  }
+  if (DEMO) return demoReq(method, path, body);
+  const r = await fetch(`${FB}/${path}.json`, {
+    method, cache: 'no-store', keepalive: !!opts.keepalive,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+(function seedDemo(){
+  const names = ['Mang Jun','Kuya Rey','Tay Berto','Mang Dodong','Kuya Jomar','Mang Nonoy','Tay Ador','Kuya Ben'];
+  names.forEach((n, i) => {
+    const ang = Math.random() * 6.283, r = Math.random() * 0.02;
+    demoTree.trikes['demo' + i] = {
+      name: n, body: 'ET-' + String(10 + i * 7).padStart(3, '0'), phone: '',
+      lat: CONFIG.CENTER[0] + Math.sin(ang) * r, lng: CONFIG.CENTER[1] + Math.cos(ang) * r,
+      status: Math.random() < .7 ? 'free' : 'busy', ts: Date.now(), _h: Math.random() * 6.283
+    };
+  });
+})();
+function demoStep(){
+  Object.values(demoTree.trikes).forEach(v => {
+    if (v._h === undefined) return; // only simulated trikes move; a demo "driver" entry stays put
+    v._h += (Math.random() - .5) * .6;
+    const dLat = v.lat - CONFIG.CENTER[0], dLng = v.lng - CONFIG.CENTER[1];
+    if (Math.hypot(dLat, dLng) > .02) v._h = Math.atan2(-dLng, -dLat);
+    const m = 28; // ~20 km/h for 5 s
+    v.lat += m * Math.cos(v._h) / 111320;
+    v.lng += m * Math.sin(v._h) / (111320 * Math.cos(v.lat * Math.PI / 180));
+    if (Math.random() < .04) v.status = v.status === 'free' ? 'busy' : 'free';
+    v.ts = Date.now();
+  });
+}
+const Backend = {
+  async list(){
+    if (DEMO) demoStep();
+    const data = await dbReq('GET', 'trikes');
+    return Object.entries(data || {}).map(([id, v]) => ({ id, ...v }));
+  },
+  remove(id){ return dbReq('DELETE', `trikes/${encodeURIComponent(id)}`, undefined, { keepalive: true }).catch(() => {}); }
+};
+
+/* ============================================================
+   Map
+   ============================================================ */
+const map = L.map('map', { zoomControl: false }).setView(CONFIG.CENTER, CONFIG.ZOOM);
+L.control.zoom({ position: 'topleft' }).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const markers = {};
+let meMarker = null;
+const trikeIcon = (busy, sel) => L.divIcon({
+  className: '', iconSize: [34, 34], iconAnchor: [17, 17],
+  html: `<div class="trike-pin ${busy ? 'busy' : ''} ${sel ? 'sel' : ''}">🛺</div>`
+});
+function setMe(lat, lng){
+  me = { lat, lng };
+  if (!meMarker){
+    meMarker = L.marker([lat, lng], { icon: L.divIcon({ className: '', iconSize: [16, 16], html: '<div class="me-pin"></div>' }), zIndexOffset: 1000 }).addTo(map);
+  } else meMarker.setLatLng([lat, lng]);
+}
+function sheetPad(){
+  const s = $(mode === 'driver' ? '#driverSheet' : (tripView ? '#tripSheet' : '#riderSheet'));
+  return s ? s.offsetHeight + 20 : 40;
+}
+function flyTo(lat, lng, z){
+  const zz = z || map.getZoom();
+  const pt = map.project([lat, lng], zz);
+  pt.y += sheetPad() / 2; // keep target above the bottom sheet
+  map.setView(map.unproject(pt, zz), zz, { animate: true });
+}
+
+/* ============================================================
+   State
+   ============================================================ */
+let mode = 'rider';
+let me = null;
+let trikes = [];          // visible, sorted
+let selectedId = null;
+let loadFailed = false;
+let pollTimer = null, watchId = null;
+let tripView = null;      // null | 'start' | 'active'
+const tripBody = bodyKey(new URLSearchParams(location.search).get('t'));
+
+const driver = Object.assign(
+  { id: rid('d'), name: '', body: '', phone: '', status: 'free' },
+  store.get('driver', {}), { online: false, onTrip: false, shiftId: null }
+);
+let lastFix = null, lastSent = 0, lastCrumb = 0, shiftOk = false, sendTimer = null, sendErr = false, gpsErr = null, wakeLock = null;
+
+/* ============================================================
+   Passenger: list + map
+   ============================================================ */
+function sortTrikes(){
+  trikes.sort((a, b) => {
+    if (isBusy(a) !== isBusy(b)) return isBusy(a) ? 1 : -1;
+    if (a.dist != null && b.dist != null) return a.dist - b.dist;
+    return String(a.body).localeCompare(String(b.body));
+  });
+}
+async function refresh(){
+  try{
+    const all = await Backend.list();
+    loadFailed = false;
+    const now = Date.now();
+    trikes = all
+      .filter(v => v && typeof v.lat === 'number' && typeof v.lng === 'number' && v.status !== 'offline' &&
+                   (DEMO || now - (v.ts || 0) < CONFIG.STALE_SEC * 1000))
+      .map(v => ({ ...v, dist: me ? km(me, v) : null }));
+    sortTrikes();
+  }catch(e){ loadFailed = true; }
+  renderMarkers(); renderList(); renderTrip();
+}
+function renderMarkers(){
+  const keep = new Set(mode === 'rider' ? trikes.map(v => v.id) : []);
+  Object.keys(markers).forEach(id => { if (!keep.has(id)){ map.removeLayer(markers[id]); delete markers[id]; } });
+  if (mode !== 'rider') return;
+  trikes.forEach(v => {
+    const ic = trikeIcon(isBusy(v), v.id === selectedId);
+    if (markers[v.id]){ markers[v.id].setLatLng([v.lat, v.lng]).setIcon(ic); }
+    else markers[v.id] = L.marker([v.lat, v.lng], { icon: ic }).addTo(map).on('click', () => select(v.id, false));
+  });
+}
+function renderList(){
+  const list = $('#list');
+  const freeN = trikes.filter(v => !isBusy(v)).length;
+  $('#countTxt').textContent = loadFailed ? t('loadErr') : t('countN', freeN);
+  $('#subTxt').textContent = me ? t('nearYou') : t('allowLoc');
+  $('#nearestBtn').disabled = !freeN;
+  if (!trikes.length){ list.innerHTML = `<div class="empty">${esc(t('none'))}</div>`; return; }
+  list.innerHTML = trikes.map(v => {
+    const busy = isBusy(v), sel = v.id === selectedId, ph = cleanPhone(v.phone);
+    return `<div class="card ${sel ? 'sel' : ''}" data-id="${esc(v.id)}">
+      <div class="row">
+        <div class="ico">🛺</div>
+        <div class="main">
+          <div class="name">${esc(v.name || '—')}<span class="badge ${busy ? 'busy' : 'free'}">${esc(t(busy ? 'busy' : 'free'))}</span></div>
+          <div class="meta">${esc(v.body || '')}</div>
+        </div>
+        ${v.dist != null ? `<div class="dist">${esc(fmtDist(v.dist))}<small>~${etaMin(v.dist)} ${esc(t('min'))}</small></div>` : ''}
+      </div>
+      ${sel ? `<div class="actions">
+        <button class="btn ghost" data-act="map">${esc(t('showMap'))}</button>
+        ${ph ? `<a class="btn" href="tel:${esc(ph)}">📞 ${esc(t('call'))}</a>` : `<button class="btn" disabled>${esc(t('noNumber'))}</button>`}
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+function select(id, scrollList){
+  selectedId = id;
+  const v = trikes.find(x => x.id === id);
+  renderMarkers(); renderList();
+  if (v){
+    if (me){
+      const b = L.latLngBounds([[me.lat, me.lng], [v.lat, v.lng]]);
+      map.fitBounds(b, { paddingTopLeft: [50, 60], paddingBottomRight: [50, sheetPad()], maxZoom: 17 });
+    } else flyTo(v.lat, v.lng, Math.max(map.getZoom(), 16));
+    if (scrollList !== false){
+      const el = $(`.card[data-id="${CSS.escape(id)}"]`); if (el) el.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
+$('#list').addEventListener('click', e => {
+  const card = e.target.closest('.card'); if (!card) return;
+  if (e.target.closest('a')) return; // let tel: links work
+  select(card.dataset.id);
+});
+$('#nearestBtn').onclick = () => {
+  const first = trikes.find(v => !isBusy(v));
+  if (first) select(first.id);
+};
+
+/* ============================================================
+   Passenger: trip records (QR sticker inside the e-trike opens  ?t=BODYNUMBER)
+   ============================================================ */
+function layoutSheets(){
+  const trip = mode === 'rider' && tripView;
+  $('#riderSheet').hidden = mode !== 'rider' || !!trip;
+  $('#tripSheet').hidden = !trip;
+  $('#driverSheet').hidden = mode !== 'driver';
+  $('#tripStart').hidden = tripView !== 'start';
+  $('#tripActive').hidden = tripView !== 'active';
+}
+function liveFor(key){
+  const hits = trikes.filter(v => bodyKey(v.body) === key);
+  return hits.sort((a, b) => (b.ts || 0) - (a.ts || 0))[0] || null;
+}
+function renderTrip(){
+  if (tripView === 'start'){
+    $('#tBody').textContent = tripBody;
+    const live = liveFor(tripBody);
+    $('#tDriver').textContent = live ? `${t('driverLabel')}: ${live.name || '—'}` : t('noDriver');
+  } else if (tripView === 'active'){
+    const a = store.get('activeTrip');
+    if (!a) return;
+    $('#aBody').textContent = a.body;
+    const when = new Date(a.startedAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+    $('#aMeta').textContent = `${a.driverName ? t('driverLabel') + ': ' + a.driverName + ' · ' : ''}${t('started')} ${when}`;
+  }
+}
+async function startTrip(){
+  const name = $('#pName').value.trim(), phoneRaw = $('#pPhone').value.trim(), phone = cleanPhone(phoneRaw);
+  const err = $('#tErr');
+  if (name.length < 2 || phone.replace(/\D/g, '').length < 10 || !$('#pConsent').checked){
+    err.hidden = false; err.textContent = t('needPassenger'); return;
+  }
+  err.hidden = true; $('#startTripBtn').disabled = true;
+  store.set('passenger', { name, phone: phoneRaw });
+  await refresh();                       // fresh look at who is signed in on this e-trike
+  const live = liveFor(tripBody);
+  const id = rid('t');
+  const rec = {
+    body: tripBody, driverId: live ? (live.driverId || live.id) : null, driverName: live ? live.name : null,
+    driverPhone: live ? cleanPhone(live.phone) : null, pName: name, pPhone: phone, startAt: SV, status: 'active'
+  };
+  if (me){ rec.startLat = +me.lat.toFixed(6); rec.startLng = +me.lng.toFixed(6); }
+  try{ await dbReq('PUT', `trips/${id}`, rec); }
+  catch(e){ err.hidden = false; err.textContent = t('tripErr'); $('#startTripBtn').disabled = false; return; }
+  if (live) dbReq('PATCH', `trikes/${live.id}`, { onTrip: id }).catch(() => {}); // driver sees "passenger on board"
+  store.set('activeTrip', { id, body: tripBody, trikeId: live ? live.id : null, driverName: live ? live.name : null, startedAt: Date.now() });
+  if (live) selectedId = live.id;
+  tripView = 'active'; layoutSheets(); renderTrip(); renderMarkers();
+  $('#startTripBtn').disabled = false;
+}
+async function endTrip(){
+  const a = store.get('activeTrip'); if (!a) return;
+  const rec = { endAt: SV, status: 'done' };
+  if (me){ rec.endLat = +me.lat.toFixed(6); rec.endLng = +me.lng.toFixed(6); }
+  try{ await dbReq('PATCH', `trips/${a.id}`, rec); }
+  catch(e){ const x = $('#aErr'); x.hidden = false; x.textContent = t('tripErr'); return; }
+  if (a.trikeId) dbReq('PATCH', `trikes/${a.trikeId}`, { onTrip: null }).catch(() => {});
+  store.set('activeTrip', null);
+  tripView = null; selectedId = null; layoutSheets(); refresh();
+}
+$('#startTripBtn').onclick = startTrip;
+$('#endTripBtn').onclick = endTrip;
+$('#skipTripBtn').onclick = () => { tripView = null; layoutSheets(); };
+
+/* ============================================================
+   Location
+   ============================================================ */
+function startWatch(){
+  if (!navigator.geolocation){ gpsErr = 'unsupported'; renderLive(); return; }
+  if (watchId != null) return;
+  watchId = navigator.geolocation.watchPosition(pos => {
+    gpsErr = null;
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    const first = !me;
+    setMe(lat, lng);
+    lastFix = { lat, lng, acc: Math.round(accuracy || 0) };
+    if (first && !(mode === 'rider' && selectedId)) flyTo(lat, lng, 15);
+    if (mode === 'rider'){ trikes.forEach(v => v.dist = km(me, v)); sortTrikes(); renderList(); }
+    if (mode === 'driver' && driver.online && !lastSent) sendNow();
+    renderLive();
+  }, err => {
+    gpsErr = err.code === 1 ? 'denied' : 'wait';
+    renderLive();
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+}
+$('#locBtn').onclick = () => { if (me) flyTo(me.lat, me.lng, 16); startWatch(); };
+
+/* ============================================================
+   Driver: time in / time out records + live position + GPS trail
+   ============================================================ */
+function renderLive(){
+  const dot = $('#liveDot'), txt = $('#liveTxt'), err = $('#dErr');
+  const bad = gpsErr === 'denied' ? t('gpsDenied') : (sendErr ? t('netErr') : '');
+  err.hidden = !bad; err.textContent = bad;
+  dot.classList.toggle('on', driver.online && !sendErr && !gpsErr);
+  if (!driver.online) txt.textContent = t('offline');
+  else if (!lastFix) txt.textContent = t('gpsWait');
+  else {
+    const ago = lastSent ? Math.max(0, Math.round((Date.now() - lastSent) / 1000)) : 0;
+    txt.textContent = `${t('sharing')} · ±${lastFix.acc} m · ${t('lastSent')} ${ago}s`;
+  }
+  $('#onBoard').hidden = !(driver.online && driver.onTrip);
+  $('#goBtn').className = 'btn full' + (driver.online ? ' red' : '');
+  $('#goBtn').textContent = driver.online ? t('goOffline') : t('goOnline');
+  $('#stFree').classList.toggle('on', driver.status === 'free');
+  $('#stBusy').classList.toggle('on', driver.status === 'busy');
+}
+function saveDriver(){
+  driver.name = $('#dName').value.trim();
+  driver.body = $('#dBody').value.trim().toUpperCase();
+  driver.phone = $('#dPhone').value.trim();
+  $('#dBody').value = driver.body;
+  store.set('driver', { id: driver.id, name: driver.name, body: driver.body, phone: driver.phone, status: driver.status });
+}
+async function openShift(){
+  try{
+    await dbReq('PUT', `shifts/${driver.shiftId}`, {
+      driverId: driver.id, name: driver.name, body: bodyKey(driver.body), phone: cleanPhone(driver.phone),
+      startAt: SV, status: 'open'
+    });
+    shiftOk = true;
+  }catch(e){ shiftOk = false; }
+}
+async function sendNow(){
+  if (!driver.online || !lastFix) return;
+  try{
+    await dbReq('PATCH', `trikes/${driver.id}`, {
+      name: driver.name, body: driver.body, phone: cleanPhone(driver.phone),
+      lat: +lastFix.lat.toFixed(6), lng: +lastFix.lng.toFixed(6), acc: lastFix.acc, status: driver.status, ts: SV
+    });
+    const on = await dbReq('GET', `trikes/${driver.id}/onTrip`);   // a passenger scanned the QR?
+    driver.onTrip = !!on;
+    sendErr = false; lastSent = Date.now();
+    if (!shiftOk) await openShift();
+    if (Date.now() - lastCrumb >= CONFIG.CRUMB_EVERY_SEC * 1000){
+      lastCrumb = Date.now();
+      dbReq('PUT', `tracks/${bodyKey(driver.body)}/${dayKey()}/${Date.now()}`, { lat: +lastFix.lat.toFixed(6), lng: +lastFix.lng.toFixed(6), d: driver.id }).catch(() => {});
+      if (driver.shiftId) dbReq('PATCH', `shifts/${driver.shiftId}`, { lastAt: SV }).catch(() => {});
+    }
+  }catch(e){ sendErr = true; }
+  renderLive();
+}
+async function goOnline(){
+  saveDriver();
+  if (!driver.name || !driver.body){ const e = $('#dErr'); e.hidden = false; e.textContent = t('needFields'); return; }
+  driver.online = true; lastSent = 0; lastCrumb = 0; sendErr = false; shiftOk = false;
+  driver.shiftId = rid('s');
+  store.set('openShift', driver.shiftId);
+  openShift();
+  startWatch();
+  if (lastFix) sendNow();
+  sendTimer = setInterval(() => { sendNow(); renderLive(); }, CONFIG.SEND_EVERY_SEC * 1000);
+  try{ if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+  renderLive();
+}
+function goOffline(keepalive){
+  const sid = driver.shiftId;
+  driver.online = false; driver.onTrip = false; driver.shiftId = null;
+  clearInterval(sendTimer); sendTimer = null; lastSent = 0;
+  Backend.remove(driver.id);
+  if (sid){ dbReq('PATCH', `shifts/${sid}`, { status: 'closed', endAt: SV }, { keepalive: !!keepalive }).catch(() => {}); }
+  store.set('openShift', null);
+  try{ if (wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+  renderLive();
+}
+$('#goBtn').onclick = () => driver.online ? goOffline() : goOnline();
+function setStatus(s){ driver.status = s; saveDriver(); renderLive(); if (driver.online) sendNow(); }
+$('#stFree').onclick = () => setStatus('free');
+$('#stBusy').onclick = () => setStatus('busy');
+['#dName', '#dBody', '#dPhone'].forEach(s => $(s).addEventListener('change', saveDriver));
+window.addEventListener('pagehide', () => { if (driver.online) goOffline(true); });
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (driver.online && 'wakeLock' in navigator){ try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){} }
+  if (mode === 'rider') refresh();
+});
+setInterval(() => { if (mode === 'driver' && driver.online) renderLive(); }, 1000);
+
+/* ============================================================
+   Mode switching
+   ============================================================ */
+function setMode(m){
+  mode = m;
+  $('#tabRider').classList.toggle('on', m === 'rider');
+  $('#tabDriver').classList.toggle('on', m === 'driver');
+  layoutSheets();
+  clearInterval(pollTimer); pollTimer = null;
+  if (m === 'rider'){ refresh(); pollTimer = setInterval(refresh, CONFIG.POLL_EVERY_SEC * 1000); }
+  else { renderMarkers(); renderLive(); }
+  startWatch();
+}
+$('#tabRider').onclick = () => setMode('rider');
+$('#tabDriver').onclick = () => setMode('driver');
+$('#langBtn').onclick = () => { lang = lang === 'en' ? 'ceb' : 'en'; store.set('lang', lang); applyLang(); };
+
+/* ============================================================
+   Start
+   ============================================================ */
+$('#dName').value = driver.name; $('#dBody').value = driver.body; $('#dPhone').value = driver.phone;
+if (driver.status === 'busy') $('#stFree').classList.remove('on');
+const savedP = store.get('passenger', null);
+if (savedP){ $('#pName').value = savedP.name || ''; $('#pPhone').value = savedP.phone || ''; }
+if (DEMO) $('#demoBanner').style.display = 'block';
+// A previous session ended without "Time out" (battery died, app swiped away): mark that shift as closed unexpectedly
+const orphan = store.get('openShift', null);
+if (orphan && !DEMO){ dbReq('PATCH', `shifts/${orphan}`, { status: 'closed', note: 'app closed unexpectedly' }).catch(() => {}); store.set('openShift', null); }
+tripView = store.get('activeTrip', null) ? 'active' : (tripBody ? 'start' : null);
+applyLang();
+setMode('rider');
+</script>
+</body>
+</html>

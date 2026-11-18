@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>E-Trike Records — LGU</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{--teal:#0f766e;--teal-d:#0b5a54;--teal-l:#ccfbf1;--amber:#d97706;--amber-l:#fef3c7;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--bg:#f1f5f9;--red:#dc2626}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);height:100vh;display:flex;flex-direction:column}
+  [hidden]{display:none!important}
+  header{background:var(--teal);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px}
+  header h1{font-size:17px;flex:1}
+  header .who{font-size:13px;opacity:.9}
+  nav{background:#fff;border-bottom:1px solid var(--line);display:flex;gap:2px;padding:0 10px;overflow-x:auto}
+  nav button{border:0;background:none;padding:12px 14px;font:600 14px inherit;font-family:inherit;color:var(--mute);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+  nav button.on{color:var(--teal);border-color:var(--teal)}
+  .panel{flex:1;min-height:0;overflow:auto;padding:14px}
+  .btn{border:0;border-radius:9px;font:600 14px inherit;font-family:inherit;padding:9px 14px;cursor:pointer;background:var(--teal);color:#fff}
+  .btn.ghost{background:var(--teal-l);color:var(--teal-d)}
+  .btn.sm{padding:6px 10px;font-size:13px}
+  input,select,textarea{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:14px inherit;font-family:inherit;background:#fff}
+  label{font-size:12px;font-weight:600;color:var(--mute);display:block;margin:8px 0 3px}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:12px}
+  .bar label{margin:0 0 3px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;font-size:13.5px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#f8fafc;font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.3px;position:sticky;top:0}
+  td small{color:var(--mute);display:block}
+  .tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .tag.ok{background:var(--teal-l);color:var(--teal-d)} .tag.warn{background:var(--amber-l);color:#92400e} .tag.bad{background:#fee2e2;color:#991b1b} .tag.gray{background:#e2e8f0;color:#475569}
+  .split{display:grid;grid-template-columns:360px 1fr;gap:12px;height:100%}
+  .side{background:#fff;border-radius:10px;padding:12px;overflow:auto}
+  .side h3{font-size:14px;margin:6px 0 4px}
+  .side hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+  .map{border-radius:10px;overflow:hidden;min-height:360px;height:100%}
+  .row{display:flex;gap:8px} .row>*{flex:1;min-width:0}
+  .res{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin-top:8px;cursor:pointer;font-size:13px}
+  .res:hover{border-color:var(--teal)}
+  .note{font-size:12px;color:var(--mute);margin-top:6px;line-height:1.4}
+  .login{max-width:360px;margin:12vh auto;background:#fff;padding:24px;border-radius:14px;box-shadow:0 8px 30px rgba(15,23,42,.1)}
+  .login h2{margin-bottom:4px} .login input{width:100%}
+  .err{color:var(--red);font-size:13px;margin-top:8px}
+  .banner{background:var(--amber-l);color:#92400e;font-size:12px;padding:6px 12px;text-align:center}
+  #qrOut{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-top:14px}
+  .sticker{background:#fff;border:2px dashed #94a3b8;border-radius:10px;padding:12px;text-align:center;break-inside:avoid}
+  .sticker svg{width:150px;height:150px}
+  .sticker b{display:block;font-size:22px;margin-top:4px}
+  .sticker span{font-size:11px;color:#475569;display:block;margin-top:2px}
+  .pin{font-size:20px;text-align:center;line-height:26px;width:28px;height:28px;border-radius:50%;background:#fff;border:3px solid var(--teal);box-shadow:0 1px 5px rgba(0,0,0,.3)}
+  .pin.stale{border-color:#94a3b8;filter:grayscale(1)} .pin.busy{border-color:var(--amber)}
+  @media (max-width:800px){.split{grid-template-columns:1fr;height:auto}.map{height:420px}}
+  @media print{ body *{visibility:hidden} #qrOut,#qrOut *{visibility:visible} #qrOut{position:absolute;left:0;top:0;width:100%} }
+</style>
+</head>
+<body>
+<div id="demoBanner" class="banner" hidden>DEMO MODE — sample data only. Put your Firebase URL and API key in the CONFIG to use real records. Any email/password works.</div>
+
+<!-- Login -->
+<div id="loginView" class="login">
+  <h2>🛺 E-Trike Records</h2>
+  <p class="note" style="margin:0 0 12px">For authorized LGU staff only. Everything you view or export is logged.</p>
+  <label>Email</label><input id="email" type="email" autocomplete="username">
+  <label>Password</label><input id="pass" type="password" autocomplete="current-password">
+  <button class="btn" id="loginBtn" style="width:100%;margin-top:14px;padding:11px">Sign in</button>
+  <div class="err" id="loginErr" hidden></div>
+</div>
+
+<!-- App -->
+<div id="appView" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+  <header><h1>🛺 E-Trike Records</h1><span class="who" id="who"></span><button class="btn sm ghost" id="logoutBtn">Sign out</button></header>
+  <nav id="nav">
+    <button data-tab="live" class="on">Live map</button>
+    <button data-tab="trips">Trips</button>
+    <button data-tab="shifts">Time in / out</button>
+    <button data-tab="trace">Trace &amp; search</button>
+    <button data-tab="qr">QR stickers</button>
+  </nav>
+
+  <!-- Live -->
+  <div class="panel" data-panel="live"><div class="split">
+    <div class="side"><h3 id="liveCount"></h3><div id="liveList"></div>
+      <p class="note">"Silent" = signed in earlier but no update for over 90 seconds (phone off, no data, or tracker unplugged).</p></div>
+    <div class="map" id="mapLive"></div>
+  </div></div>
+
+  <!-- Trips -->
+  <div class="panel" data-panel="trips" hidden>
+    <div class="bar">
+      <div><label>From</label><input type="date" id="tFrom"></div>
+      <div><label>To</label><input type="date" id="tTo"></div>
+      <div><label>Search (e-trike, driver, passenger, phone)</label><input id="tQ" style="min-width:240px"></div>
+      <button class="btn" id="tGo">Load</button>
+      <button class="btn ghost" id="tCsv">Export CSV</button>
+    </div>
+    <table><thead><tr><th>Started</th><th>E-trike</th><th>Driver</th><th>Passenger</th><th>Ended</th><th>Status</th></tr></thead><tbody id="tBody"></tbody></table>
+    <p class="note" id="tNote"></p>
+  </div>
+
+  <!-- Shifts -->
+  <div class="panel" data-panel="shifts" hidden>
+    <div class="bar">
+      <div><label>From</label><input type="date" id="sFrom"></div>
+      <div><label>To</label><input type="date" id="sTo"></div>
+      <div><label>Search (e-trike, driver)</label><input id="sQ" style="min-width:220px"></div>
+      <button class="btn" id="sGo">Load</button>
+      <button class="btn ghost" id="sCsv">Export CSV</button>
+    </div>
+    <table><thead><tr><th>Time in</th><th>Time out</th><th>E-trike</th><th>Driver</th><th>Phone</th><th>Status</th></tr></thead><tbody id="sBody"></tbody></table>
+    <p class="note" id="sNote"></p>
+  </div>
+
+  <!-- Trace -->
+  <div class="panel" data-panel="trace" hidden><div class="split">
+    <div class="side">
+      <h3>Route of one e-trike</h3>
+      <label>E-trike (body number)</label><input id="rBody" list="bodies" placeholder="ET-045" style="width:100%"><datalist id="bodies"></datalist>
+      <label>Date</label><input type="date" id="rDay" style="width:100%">
+      <div class="row"><div><label>From</label><input type="time" id="rFrom" value="00:00" style="width:100%"></div><div><label>To</label><input type="time" id="rTo" value="23:59" style="width:100%"></div></div>
+      <button class="btn" id="rGo" style="margin-top:10px;width:100%">Show route</button>
+      <hr>
+      <h3>Who was near a place?</h3>
+      <p class="note" style="margin:0 0 4px">1) Click the map to mark the place. 2) Set date, time and radius. 3) Search.</p>
+      <div class="note" id="pickTxt">No place selected.</div>
+      <div class="row"><div><label>Date</label><input type="date" id="nDay" style="width:100%"></div><div><label>Radius (m)</label><input type="number" id="nRad" value="300" min="50" max="3000" style="width:100%"></div></div>
+      <div class="row"><div><label>From</label><input type="time" id="nFrom" value="20:00" style="width:100%"></div><div><label>To</label><input type="time" id="nTo" value="22:00" style="width:100%"></div></div>
+      <button class="btn" id="nGo" style="margin-top:10px;width:100%">Search</button>
+      <div id="nOut"></div>
+      <p class="note">Based on the GPS trail saved about every 30 seconds. Shows which e-trikes passed within the radius and who was signed in. Use only for official investigations.</p>
+    </div>
+    <div class="map" id="mapTrace"></div>
+  </div></div>
+
+  <!-- QR -->
+  <div class="panel" data-panel="qr" hidden>
+    <div class="bar" style="align-items:flex-start">
+      <div><label>E-trike body numbers (one per line or comma-separated)</label><textarea id="qList" rows="5" style="width:260px">ET-001
+ET-002
+ET-003</textarea></div>
+      <div><label>Passenger page address</label><input id="qBase" style="width:380px"></div>
+      <button class="btn" id="qGo">Make stickers</button>
+      <button class="btn ghost" id="qPrint">Print</button>
+    </div>
+    <p class="note">Print on waterproof sticker paper and place one inside each e-trike where the passenger can scan it. Each sticker opens the passenger page with that e-trike's number.</p>
+    <div id="qrOut"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+/* ============================================================
+   SETTINGS — same FIREBASE_URL as index.html, plus the Web API key
+   (Firebase console → Project settings → General → Web API Key)
+   ============================================================ */
+const CONFIG = {
+  FIREBASE_URL: "",
+  FIREBASE_API_KEY: "",
+  CENTER: [10.9333, 124.4333],
+  ZOOM: 14,
+  STALE_SEC: 90
+};
+
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const bodyKey = s => String(s || '').trim().toUpperCase().replace(/[.$#\[\]\/\s]+/g, '_');
+const fmt = ms => ms ? new Date(ms).toLocaleString('en-PH', { timeZone: 'Asia/Manila', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const dayOf = (ms = Date.now()) => new Date(ms + 8 * 3600e3).toISOString().slice(0, 10);
+const atManila = (day, hm) => Date.parse(`${day}T${hm || '00:00'}:00+08:00`);
+function km(a, b){
+  const R = 6371, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const FB = (CONFIG.FIREBASE_URL || '').replace(/\/+$/, '');
+const DEMO = !FB;
+
+/* ============================================================
+   Demo data (so you can look around before Firebase is set up)
+   ============================================================ */
+const mock = { trikes: {}, trips: {}, shifts: {}, tracks: {}, admins: {} };
+function buildMock(){
+  const now = Date.now(), today = dayOf();
+  const drivers = ['Mang Jun','Kuya Rey','Tay Berto','Mang Dodong','Kuya Jomar'];
+  const pax = ['Sample Passenger A','Sample Passenger B','Sample Passenger C'];
+  drivers.forEach((nm, i) => {
+    const body = 'ET-' + String(i + 1).padStart(3, '0');
+    let lat = CONFIG.CENTER[0] + (Math.random() - .5) * .02, lng = CONFIG.CENTER[1] + (Math.random() - .5) * .02, h = Math.random() * 6.28;
+    const start = atManila(today, '06:00'); const end = Math.min(now, atManila(today, '14:00'));
+    mock.tracks[body] = { [today]: {} };
+    for (let ts = start; ts <= end; ts += 30000){
+      h += (Math.random() - .5) * .7; lat += 140 * Math.cos(h) / 111320; lng += 140 * Math.sin(h) / (111320 * Math.cos(lat * Math.PI / 180));
+      mock.tracks[body][today][ts] = { lat: +lat.toFixed(6), lng: +lng.toFixed(6), d: 'drv' + i };
+    }
+    mock.shifts['s' + i] = { driverId: 'drv' + i, name: nm, body, phone: '09170000' + (100 + i), startAt: start, lastAt: end, endAt: i === 4 ? end : undefined, status: i === 4 ? 'closed' : 'open' };
+    if (i !== 4) mock.trikes['drv' + i] = { name: nm, body, phone: '09170000' + (100 + i), lat, lng, status: 'free', ts: i === 3 ? now - 300000 : now, onTrip: i === 1 ? 't0' : undefined };
+    for (let k = 0; k < 2; k++){
+      const s = start + (k + 1) * 2.1 * 3600e3;
+      if (s < end) mock.trips['t' + i + k] = { body, driverId: 'drv' + i, driverName: nm, driverPhone: '09170000' + (100 + i), pName: pax[(i + k) % 3], pPhone: '0917000' + (2000 + i * 10 + k), startAt: s, endAt: s + 12 * 60000, status: 'done' };
+    }
+  });
+  mock.admins.demo = true;
+}
+function mockGet(path, q){
+  let node = mock;
+  for (const s of path.split('/').filter(Boolean)){ node = node == null ? null : node[s]; }
+  if (node == null) return null;
+  if (q.shallow) return Object.fromEntries(Object.keys(node).map(k => [k, true]));
+  return JSON.parse(JSON.stringify(node));
+}
+
+/* ============================================================
+   Auth (Firebase Auth REST) + database access
+   ============================================================ */
+let auth = null;
+async function signIn(email, password){
+  if (DEMO){ auth = { uid: 'demo', email: email || 'demo@example.com', token: 'demo', exp: Infinity }; buildMock(); return; }
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(CONFIG.FIREBASE_API_KEY)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, returnSecureToken: true })
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(/INVALID|EMAIL|PASSWORD|CREDENTIAL/i.test(j.error?.message || '') ? 'Wrong email or password.' : (j.error?.message || 'Sign-in failed.'));
+  auth = { uid: j.localId, email: j.email, token: j.idToken, refresh: j.refreshToken, exp: Date.now() + (parseInt(j.expiresIn, 10) - 120) * 1000 };
+  let ok = null;
+  try{ ok = await dbGet(`admins/${auth.uid}`); }catch(e){}
+  if (ok !== true){ auth = null; throw new Error('This account is not an authorized LGU administrator.'); }
+}
+async function ensureToken(){
+  if (DEMO || Date.now() < auth.exp) return;
+  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(CONFIG.FIREBASE_API_KEY)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(auth.refresh)
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error('Session expired. Please sign in again.');
+  auth.token = j.id_token; auth.refresh = j.refresh_token; auth.exp = Date.now() + (parseInt(j.expires_in, 10) - 120) * 1000;
+}
+async function dbGet(path, q = {}){
+  if (DEMO) return mockGet(path, q);
+  await ensureToken();
+  const p = new URLSearchParams();
+  if (q.shallow) p.set('shallow', 'true');
+  if (q.last){ p.set('orderBy', '"startAt"'); p.set('limitToLast', String(q.last)); }
+  p.set('auth', auth ? auth.token : '');
+  const r = await fetch(`${FB}/${path}.json?${p}`, { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function audit(action, detail){
+  if (DEMO || !auth) return;
+  const id = Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  ensureToken().then(() => fetch(`${FB}/audit/${id}.json?auth=${encodeURIComponent(auth.token)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uid: auth.uid, email: auth.email, action, detail: String(detail || '').slice(0, 300), at: { '.sv': 'timestamp' } })
+  })).catch(() => {});
+}
+
+/* ============================================================
+   Tabs
+   ============================================================ */
+const maps = {};
+function mkMap(id){
+  const m = L.map(id).setView(CONFIG.CENTER, CONFIG.ZOOM);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(m);
+  return m;
+}
+let tab = 'live', liveTimer = null;
+function showTab(name){
+  tab = name;
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  $$('.panel').forEach(p => p.hidden = p.dataset.panel !== name);
+  if (name === 'live'){ maps.live ||= mkMap('mapLive'); setTimeout(() => maps.live.invalidateSize(), 50); refreshLive(); }
+  if (name === 'trace'){ if (!maps.trace){ maps.trace = mkMap('mapTrace'); maps.trace.on('click', e => pickPlace(e.latlng)); } setTimeout(() => maps.trace.invalidateSize(), 50); fillBodies(); }
+  if (name === 'trips' && !trips) loadTrips();
+  if (name === 'shifts' && !shifts) loadShifts();
+  clearInterval(liveTimer); liveTimer = name === 'live' ? setInterval(refreshLive, 5000) : null;
+}
+$('#nav').onclick = e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); };
+
+/* ---------- Live ---------- */
+const liveMarkers = {};
+async function refreshLive(){
+  let data;
+  try{ data = await dbGet('trikes'); }catch(e){ $('#liveCount').textContent = 'Cannot load (' + esc(e.message) + ')'; return; }
+  const now = Date.now();
+  if (DEMO) Object.values(mock.trikes).forEach(v => { if (now - v.ts < 60000) v.ts = now; });
+  const list = Object.entries(data || {}).map(([id, v]) => ({ id, ...v, age: (now - (v.ts || 0)) / 1000 }))
+    .filter(v => typeof v.lat === 'number').sort((a, b) => String(a.body).localeCompare(String(b.body)));
+  const online = list.filter(v => v.age < CONFIG.STALE_SEC).length;
+  $('#liveCount').textContent = `${online} online · ${list.length - online} silent`;
+  $('#liveList').innerHTML = list.map(v => {
+    const stale = v.age >= CONFIG.STALE_SEC;
+    return `<div class="res" data-id="${esc(v.id)}"><b>${esc(v.body)}</b> — ${esc(v.name)}
+      <span class="tag ${stale ? 'bad' : (v.onTrip ? 'warn' : 'ok')}" style="float:right">${stale ? 'silent ' + Math.round(v.age / 60) + ' min' : (v.onTrip ? 'passenger' : 'online')}</span>
+      <small style="color:#64748b;display:block">${esc(v.phone || '')}</small></div>`;
+  }).join('') || '<p class="note">No e-trikes signed in.</p>';
+  const keep = new Set(list.map(v => v.id));
+  Object.keys(liveMarkers).forEach(id => { if (!keep.has(id)){ maps.live.removeLayer(liveMarkers[id]); delete liveMarkers[id]; } });
+  list.forEach(v => {
+    const ic = L.divIcon({ className: '', iconSize: [28, 28], iconAnchor: [14, 14], html: `<div class="pin ${v.age >= CONFIG.STALE_SEC ? 'stale' : (v.onTrip ? 'busy' : '')}">🛺</div>` });
+    const tip = `${v.body} — ${v.name}`;
+    if (liveMarkers[v.id]) liveMarkers[v.id].setLatLng([v.lat, v.lng]).setIcon(ic).setTooltipContent(tip);
+    else liveMarkers[v.id] = L.marker([v.lat, v.lng], { icon: ic }).addTo(maps.live).bindTooltip(tip);
+  });
+  if (!refreshLive.fitted && list.length){ maps.live.fitBounds(L.latLngBounds(list.map(v => [v.lat, v.lng])).pad(.3)); refreshLive.fitted = true; }
+}
+$('#liveList').onclick = e => {
+  const c = e.target.closest('.res'); if (!c || !liveMarkers[c.dataset.id]) return;
+  maps.live.setView(liveMarkers[c.dataset.id].getLatLng(), 17); liveMarkers[c.dataset.id].openTooltip();
+};
+
+/* ---------- Trips & shifts ---------- */
+let trips = null, shifts = null;
+const csvCell = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+function download(name, rows){
+  const blob = new Blob(['﻿' + rows.map(r => r.map(csvCell).join(',')).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function range(fromId, toId){
+  const f = $(fromId).value, t = $(toId).value;
+  return [f ? atManila(f, '00:00') : 0, t ? atManila(t, '23:59') : Infinity];
+}
+async function loadTrips(){
+  $('#tNote').textContent = 'Loading…';
+  try{ const d = await dbGet('trips', { last: 1000 }); trips = Object.entries(d || {}).map(([id, v]) => ({ id, ...v })); }
+  catch(e){ $('#tNote').textContent = 'Cannot load: ' + e.message; return; }
+  audit('view-trips', `${$('#tFrom').value || '*'}..${$('#tTo').value || '*'} q=${$('#tQ').value}`);
+  renderTrips();
+}
+function tripRows(){
+  const [f, t] = range('#tFrom', '#tTo'), q = $('#tQ').value.trim().toLowerCase();
+  return (trips || []).filter(v => v.startAt >= f && v.startAt <= t)
+    .filter(v => !q || [v.body, v.driverName, v.driverPhone, v.pName, v.pPhone].join(' ').toLowerCase().includes(q))
+    .sort((a, b) => b.startAt - a.startAt);
+}
+function renderTrips(){
+  const rows = tripRows();
+  $('#tBody').innerHTML = rows.map(v => `<tr>
+    <td>${esc(fmt(v.startAt))}</td><td><b>${esc(v.body)}</b></td>
+    <td>${v.driverName ? esc(v.driverName) + `<small>${esc(v.driverPhone || '')}</small>` : '<span class="tag gray">not signed in</span>'}</td>
+    <td>${esc(v.pName)}<small>${esc(v.pPhone)}</small></td>
+    <td>${esc(fmt(v.endAt))}</td>
+    <td><span class="tag ${v.status === 'done' ? 'ok' : 'warn'}">${esc(v.status === 'done' ? 'completed' : 'not ended')}</span></td></tr>`).join('')
+    || '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:20px">No trips in this range.</td></tr>';
+  $('#tNote').textContent = `${rows.length} trip(s) shown. Latest 1000 records are loaded.`;
+}
+$('#tGo').onclick = loadTrips; $('#tQ').oninput = () => trips && renderTrips();
+$('#tCsv').onclick = () => {
+  if (!trips) return;
+  audit('export-trips', `${$('#tFrom').value || '*'}..${$('#tTo').value || '*'} q=${$('#tQ').value}`);
+  download('trips.csv', [['Started', 'Ended', 'E-trike', 'Driver', 'Driver phone', 'Passenger', 'Passenger phone', 'Status']]
+    .concat(tripRows().map(v => [fmt(v.startAt), fmt(v.endAt), v.body, v.driverName, v.driverPhone, v.pName, v.pPhone, v.status])));
+};
+async function loadShifts(){
+  $('#sNote').textContent = 'Loading…';
+  try{ const d = await dbGet('shifts', { last: 1000 }); shifts = Object.entries(d || {}).map(([id, v]) => ({ id, ...v })); }
+  catch(e){ $('#sNote').textContent = 'Cannot load: ' + e.message; return; }
+  audit('view-shifts', `${$('#sFrom').value || '*'}..${$('#sTo').value || '*'} q=${$('#sQ').value}`);
+  renderShifts();
+}
+function shiftRows(){
+  const [f, t] = range('#sFrom', '#sTo'), q = $('#sQ').value.trim().toLowerCase();
+  return (shifts || []).filter(v => v.startAt >= f && v.startAt <= t)
+    .filter(v => !q || [v.body, v.name, v.phone].join(' ').toLowerCase().includes(q))
+    .sort((a, b) => b.startAt - a.startAt);
+}
+function renderShifts(){
+  const rows = shiftRows();
+  $('#sBody').innerHTML = rows.map(v => {
+    const open = v.status === 'open', cut = v.note;
+    return `<tr><td>${esc(fmt(v.startAt))}</td>
+      <td>${open ? '—' : esc(fmt(v.endAt || v.lastAt))}${cut ? '<small>' + esc(cut) + '</small>' : ''}</td>
+      <td><b>${esc(v.body)}</b></td><td>${esc(v.name)}</td><td>${esc(v.phone || '')}</td>
+      <td><span class="tag ${open ? 'ok' : (cut ? 'warn' : 'gray')}">${open ? 'on duty' : (cut ? 'cut off' : 'timed out')}</span></td></tr>`;
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:#64748b;padding:20px">No records in this range.</td></tr>';
+  $('#sNote').textContent = `${rows.length} record(s) shown. "Cut off" = the driver's phone closed the app without time-out (time shown is the last update).`;
+}
+$('#sGo').onclick = loadShifts; $('#sQ').oninput = () => shifts && renderShifts();
+$('#sCsv').onclick = () => {
+  if (!shifts) return;
+  audit('export-shifts', `${$('#sFrom').value || '*'}..${$('#sTo').value || '*'} q=${$('#sQ').value}`);
+  download('time-in-out.csv', [['Time in', 'Time out', 'E-trike', 'Driver', 'Phone', 'Status']]
+    .concat(shiftRows().map(v => [fmt(v.startAt), v.status === 'open' ? '' : fmt(v.endAt || v.lastAt), v.body, v.name, v.phone, v.status])));
+};
+
+/* ---------- Trace & search ---------- */
+async function fillBodies(){
+  try{ const keys = Object.keys(await dbGet('tracks', { shallow: true }) || {}).sort();
+    $('#bodies').innerHTML = keys.map(k => `<option value="${esc(k)}">`).join(''); }catch(e){}
+  if (!$('#rDay').value) $('#rDay').value = $('#nDay').value = dayOf();
+}
+async function getTrack(body, day, from, to){
+  const d = await dbGet(`tracks/${bodyKey(body)}/${day}`);
+  const f = atManila(day, from), t = atManila(day, to) + 59999;
+  return Object.entries(d || {}).map(([ts, v]) => ({ t: +ts, lat: v.lat, lng: v.lng })).filter(p => p.t >= f && p.t <= t).sort((a, b) => a.t - b.t);
+}
+let layerTrace = null, pickMarker = null, pickCircle = null, picked = null;
+function clearTrace(){ if (layerTrace) maps.trace.removeLayer(layerTrace); layerTrace = L.layerGroup().addTo(maps.trace); }
+const tm = ms => new Date(ms).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit' });
+function drawRoute(pts, label){
+  clearTrace();
+  if (!pts.length) return false;
+  const ll = pts.map(p => [p.lat, p.lng]);
+  L.polyline(ll, { color: '#0f766e', weight: 4, opacity: .85 }).addTo(layerTrace);
+  pts.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 3, color: '#0f766e', weight: 1, fillOpacity: 1 }).addTo(layerTrace).bindTooltip(`${label} ${tm(p.t)}`));
+  L.circleMarker(ll[0], { radius: 8, color: '#16a34a', fillOpacity: 1 }).addTo(layerTrace).bindTooltip('Start ' + tm(pts[0].t));
+  L.circleMarker(ll[ll.length - 1], { radius: 8, color: '#dc2626', fillOpacity: 1 }).addTo(layerTrace).bindTooltip('End ' + tm(pts[pts.length - 1].t));
+  maps.trace.fitBounds(L.latLngBounds(ll).pad(.2));
+  return true;
+}
+$('#rGo').onclick = async () => {
+  const body = $('#rBody').value, day = $('#rDay').value;
+  if (!body || !day) return;
+  audit('route', `${bodyKey(body)} ${day} ${$('#rFrom').value}-${$('#rTo').value}`);
+  const pts = await getTrack(body, day, $('#rFrom').value, $('#rTo').value).catch(() => []);
+  if (!drawRoute(pts, bodyKey(body))) { clearTrace(); alert('No saved GPS trail for that e-trike and time.'); }
+};
+function pickPlace(ll){
+  picked = ll;
+  $('#pickTxt').textContent = `Place: ${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`;
+  if (pickMarker) maps.trace.removeLayer(pickMarker); if (pickCircle) maps.trace.removeLayer(pickCircle);
+  pickMarker = L.marker(ll).addTo(maps.trace);
+  pickCircle = L.circle(ll, { radius: +$('#nRad').value || 300, color: '#d97706', fillOpacity: .1 }).addTo(maps.trace);
+}
+$('#nRad').oninput = () => { if (picked) pickPlace(picked); };
+$('#nGo').onclick = async () => {
+  if (!picked){ alert('Click the map first to mark the place.'); return; }
+  const day = $('#nDay').value, from = $('#nFrom').value, to = $('#nTo').value, rad = +$('#nRad').value || 300;
+  const out = $('#nOut'); out.innerHTML = '<p class="note">Searching…</p>';
+  audit('near-search', `${picked.lat.toFixed(5)},${picked.lng.toFixed(5)} r=${rad} ${day} ${from}-${to}`);
+  try{
+    if (!trips) await loadTrips(); if (!shifts) await loadShifts();
+    const bodies = Object.keys(await dbGet('tracks', { shallow: true }) || {});
+    const t0 = atManila(day, from), t1 = atManila(day, to) + 59999, found = [];
+    for (const b of bodies){
+      const pts = await getTrack(b, day, '00:00', '23:59');
+      let best = null, n = 0;
+      for (const p of pts){
+        if (p.t < t0 || p.t > t1) continue;
+        const d = km(picked, p) * 1000;
+        if (d <= rad){ n++; if (!best || d < best.d) best = { d, t: p.t }; }
+      }
+      if (best){
+        const dr = [...new Set((shifts || []).filter(s => s.body === b && s.startAt <= best.t && (s.status === 'open' || (s.endAt || s.lastAt || 0) >= best.t - 60000)).map(s => `${s.name} (${s.phone || '—'})`))];
+        const tp = (trips || []).filter(x => x.body === b && x.startAt <= t1 && (x.endAt || Date.now()) >= t0);
+        found.push({ body: b, d: best.d, t: best.t, n, dr, tp });
+      }
+    }
+    found.sort((a, b) => a.d - b.d);
+    out.innerHTML = found.length ? found.map(f => `<div class="res" data-body="${esc(f.body)}"><b>${esc(f.body)}</b>
+        <span class="tag ok" style="float:right">${Math.round(f.d)} m at ${esc(tm(f.t))}</span>
+        <small style="color:#475569;display:block">Driver: ${f.dr.length ? esc(f.dr.join('; ')) : 'no time-in record found'}</small>
+        <small style="color:#475569;display:block">Passenger trips in window: ${f.tp.length ? esc(f.tp.map(x => `${x.pName} (${x.pPhone})`).join('; ')) : 'none recorded'}</small></div>`).join('')
+      : '<p class="note">No e-trike was recorded within that radius and time.</p>';
+    out.onclick = async e => {
+      const c = e.target.closest('.res'); if (!c) return;
+      const pts = await getTrack(c.dataset.body, day, from, to);
+      drawRoute(pts, c.dataset.body);
+    };
+  }catch(e){ out.innerHTML = `<p class="err">Search failed: ${esc(e.message)}</p>`; }
+};
+
+/* ---------- QR stickers ---------- */
+$('#qBase').value = location.href.replace(/admin\.html.*$/, '').replace(/[?#].*$/, '') + 'index.html';
+function makeStickers(){
+  if (typeof qrcode === 'undefined'){ $('#qrOut').innerHTML = '<p class="err">QR library could not load (check internet).</p>'; return; }
+  const list = $('#qList').value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  const base = $('#qBase').value.trim();
+  audit('make-qr', list.join(','));
+  $('#qrOut').innerHTML = list.map(b => {
+    const qr = qrcode(0, 'M'); qr.addData(`${base}?t=${encodeURIComponent(b.toUpperCase())}`); qr.make();
+    return `<div class="sticker">${qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true })}<b>${esc(b.toUpperCase())}</b><span>Scan to record your trip</span><span>I-scan aron marekord ang biyahe</span></div>`;
+  }).join('');
+}
+$('#qGo').onclick = makeStickers; $('#qPrint').onclick = () => { makeStickers(); window.print(); };
+
+/* ---------- Login ---------- */
+async function doLogin(){
+  const err = $('#loginErr'); err.hidden = true; $('#loginBtn').disabled = true;
+  try{
+    await signIn($('#email').value.trim(), $('#pass').value);
+    $('#loginView').hidden = true; $('#appView').hidden = false;
+    $('#who').textContent = auth.email;
+    audit('login', '');
+    showTab('live');
+  }catch(e){ err.hidden = false; err.textContent = e.message; }
+  $('#loginBtn').disabled = false;
+}
+$('#loginBtn').onclick = doLogin;
+$('#pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('#logoutBtn').onclick = () => location.reload();
+if (DEMO) $('#demoBanner').hidden = false;
+</script>
+</body>
+</html>
